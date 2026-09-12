@@ -1,0 +1,679 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Poppins', sans-serif;
+    --bg-dark: #0A1128;
+    --card-dark: #101935;
+    --border-dark: #1E2A4A;
+    --primary-blue: #2563EB;
+    --primary-blue-hover: #1D4ED8;
+  }
+
+  html, body, button, input, select, textarea, optgroup, option {
+    font-family: 'Poppins', sans-serif !important;
+  }
+
+  body {
+    background-color: #0A1128;
+    color: #F1F5F9;
+    font-family: 'Poppins', sans-serif !important;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+}
+
+/* Remove default browser spinner controls from all numeric inputs */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none !important;
+  margin: 0 !important;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield !important;
+  appearance: textfield !important;
+}
+
+/* Light Theme Overrides */
+html.light body {
+  background-color: #F8FAFC !important;
+  color: #0F172A !important;
+}
+
+html.light main {
+  background-color: #F8FAFC !important;
+}
+
+html.light ::-webkit-scrollbar-track {
+  background: #F1F5F9 !important;
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: #CBD5E1 !important;
+}
+
+/* Sidebar Light Theme Overrides */
+html.light aside,
+html.light aside > div {
+  background-color: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+}
+
+html.light aside nav a:not(.active) {
+  color: #475569 !important;
+}
+
+html.light aside nav a:not(.active):hover {
+  background-color: #F1F5F9 !important;
+  color: #0F172A !important;
+}
+
+html.light aside nav a.active {
+  background-color: #EFF6FF !important;
+  color: #2563EB !important;
+  border-color: #BFDBFE !important;
+  font-weight: 600 !important;
+}
+
+/* Header Light Theme Overrides */
+html.light header {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  border-color: #E2E8F0 !important;
+}
+
+html.light #role-dropdown-menu {
+  background-color: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+}
+
+html.light #role-dropdown-menu button {
+  color: #334155 !important;
+}
+
+html.light #role-dropdown-menu button:hover {
+  background-color: #F8FAFC !important;
+  color: #2563EB !important;
+}
+
+/* Primary Cards & Surfaces in Light Mode */
+html.light .bg-\[\#0D121F\],
+html.light .bg-\[\#121827\],
+html.light .bg-\[\#0F1523\] {
+  background-color: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04) !important;
+}
+
+html.light .bg-\[\#0D121F\]\/95 {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+}
+
+/* Secondary Surfaces & Containers in Light Mode */
+html.light .bg-\[\#0B0F17\],
+html.light .bg-\[\#0B0F17\]\/60,
+html.light .bg-\[\#101726\],
+html.light .bg-\[\#151D2F\],
+html.light .bg-\[\#161D2F\],
+html.light .bg-\[\#182032\],
+html.light .bg-\[\#1A2234\],
+html.light .bg-\[\#121827\]\/60,
+html.light .bg-\[\#0E131F\]\/50 {
+  background-color: #F8FAFC !important;
+  border-color: #E2E8F0 !important;
+}
+
+/* Progress bar background tracks in Light Mode */
+html.light .bg-\[\#1F293D\],
+html.light .bg-\[\#161D2F\],
+html.light .bg-\[\#182032\] {
+  background-color: #E2E8F0 !important;
+}
+
+/* Payment Mode & Status Badges in tables/cards in Light Mode */
+html.light .bg-\[\#1A2338\],
+html.light .bg-slate-800,
+html.light span.bg-slate-800,
+html.light div.bg-slate-800,
+html.light button.bg-slate-800,
+html.light span.bg-\[\#0B0F17\],
+html.light div.bg-\[\#0B0F17\],
+html.light span.bg-\[\#121827\],
+html.light span.bg-\[\#0D121F\] {
+  background-color: #F1F5F9 !important;
+  color: #334155 !important;
+  border-color: #CBD5E1 !important;
+}
+
+/* Border Mappings in Light Mode */
+html.light .border-\[\#1F293D\],
+html.light .border-\[\#1F293D\]\/50,
+html.light .border-\[\#1F293D\]\/60,
+html.light .border-\[\#243048\],
+html.light .border-\[\#26344E\] {
+  border-color: #E2E8F0 !important;
+}
+
+/* Text Color Mappings in Light Mode */
+html.light .text-slate-100 {
+  color: #0F172A !important;
+}
+
+html.light .text-slate-200 {
+  color: #1E293B !important;
+}
+
+html.light .text-slate-300 {
+  color: #334155 !important;
+}
+
+html.light .text-slate-400 {
+  color: #64748B !important;
+}
+
+html.light .text-slate-500 {
+  color: #64748B !important;
+}
+
+/* Green, Amber, Red & Blue Accent Text in Light Mode */
+html.light .text-emerald-400 {
+  color: #059669 !important;
+}
+
+html.light .text-amber-400 {
+  color: #D97706 !important;
+}
+
+html.light .text-rose-400,
+html.light .text-red-400 {
+  color: #E11D48 !important;
+}
+
+html.light .text-blue-400 {
+  color: #2563EB !important;
+}
+
+html.light .text-blue-300 {
+  color: #1D4ED8 !important;
+}
+
+html.light .text-purple-200 {
+  color: #581C87 !important;
+}
+
+html.light .text-purple-300,
+html.light .text-purple-400 {
+  color: #6B21A8 !important;
+}
+
+html.light .user-table-name,
+html.light .user-table-name span {
+  color: #0F172A !important;
+}
+
+/* Permission Matrix & Access Checkbox Buttons in Light Mode */
+html.light .perm-label-checked,
+html.light label.perm-label-checked,
+html.light label:has(input[type="checkbox"]:checked) {
+  background-color: #EFF6FF !important;
+  border-color: #93C5FD !important;
+  color: #1E3A8A !important;
+}
+
+html.light .perm-label-checked span,
+html.light label.perm-label-checked span,
+html.light label:has(input[type="checkbox"]:checked) span {
+  color: #1E3A8A !important;
+  font-weight: 700 !important;
+}
+
+html.light label:has(input[type="checkbox"]:checked) svg {
+  color: #2563EB !important;
+}
+
+html.light label.perm-label-item:not(.perm-label-checked),
+html.light label:has(input[type="checkbox"]:not(:checked)) {
+  background-color: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  color: #334155 !important;
+}
+
+html.light label.perm-label-item:not(.perm-label-checked) span,
+html.light label:has(input[type="checkbox"]:not(:checked)) span {
+  color: #334155 !important;
+  font-weight: 600 !important;
+}
+
+html.light .bg-purple-100\/70,
+html.light .bg-purple-500\/10 {
+  background-color: #FAF5FF !important;
+  border-color: #D8B4FE !important;
+  color: #581C87 !important;
+}
+
+html.light .bg-purple-100\/70 strong,
+html.light .bg-purple-500\/10 strong {
+  color: #3B0764 !important;
+}
+
+/* Table styling in Light Mode (scoped to standard light tables, excluding nested dark panels) */
+html.light table:not(.contribution-table) > thead > tr > th:not(.contribution-th) {
+  background-color: #F8FAFC !important;
+  color: #475569 !important;
+  border-bottom: 1px solid #E2E8F0 !important;
+}
+
+html.light table:not(.contribution-table) > tbody > tr:not(.contribution-drawer-row) > td:not(.contribution-drawer-cell) {
+  border-bottom: 1px solid #F1F5F9 !important;
+  border-top: none !important;
+  color: #0F172A !important;
+}
+
+html.light table:not(.contribution-table) td:not(.contribution-drawer-cell):not(.contribution-td) div.member-name-text:not(.contribution-member-name),
+html.light .member-name-text:not(.contribution-member-name) {
+  color: #0F172A !important;
+}
+
+html.light table:not(.contribution-table) tbody tr:not(.contribution-drawer-row) {
+  border-color: #F1F5F9 !important;
+}
+
+html.light table:not(.contribution-table) tbody.divide-y > tr:not(.contribution-drawer-row) {
+  border-color: #F1F5F9 !important;
+}
+
+html.light table:not(.contribution-table) tbody tr:not(.contribution-drawer-row):hover {
+  background-color: #F8FAFC !important;
+}
+
+/* ========================================================================= */
+/* EXPANDED MEMBER CONTRIBUTIONS DRAWER (High Contrast in Both Themes)       */
+/* ========================================================================= */
+.contribution-drawer-cell,
+html.light .contribution-drawer-cell {
+  background-color: #0B0F17 !important;
+  border-bottom: 1px solid #1F293D !important;
+  color: #F1F5F9 !important;
+}
+
+.contribution-drawer-container,
+html.light .contribution-drawer-container {
+  color: #F1F5F9 !important;
+}
+
+.contribution-heading,
+html.light .contribution-heading {
+  color: #FFFFFF !important;
+}
+
+.contribution-winner-badge,
+html.light .contribution-winner-badge {
+  background-color: rgba(168, 85, 247, 0.2) !important;
+  color: #D8B4FE !important;
+  border-color: rgba(192, 132, 252, 0.4) !important;
+}
+
+.contribution-meta-text,
+html.light .contribution-meta-text {
+  color: #CBD5E1 !important;
+}
+
+.contribution-meta-strong,
+html.light .contribution-meta-strong {
+  color: #FFFFFF !important;
+}
+
+.contribution-meta-collected,
+html.light .contribution-meta-collected {
+  color: #34D399 !important;
+  font-weight: 700 !important;
+}
+
+/* Contribution Table Header */
+.contribution-table th,
+html.light .contribution-table th {
+  background-color: #121827 !important;
+  color: #94A3B8 !important;
+  border-bottom: 1px solid #1F293D !important;
+}
+
+/* Contribution Table Cells */
+.contribution-table td,
+html.light .contribution-table td {
+  border-bottom: 1px solid rgba(31, 41, 61, 0.6) !important;
+  border-top: none !important;
+  color: #CBD5E1 !important;
+  background-color: transparent !important;
+}
+
+.contribution-table tbody tr:hover,
+html.light .contribution-table tbody tr:hover {
+  background-color: #182032 !important;
+}
+
+/* Member Name: MUST BE WHITE in dark expanded table */
+.contribution-member-name,
+html.light .contribution-member-name,
+.contribution-table td div.contribution-member-name,
+html.light .contribution-table td div.contribution-member-name {
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+}
+
+/* Member Phone: Lighter secondary text */
+.contribution-member-phone,
+html.light .contribution-member-phone,
+.contribution-table td div.contribution-member-phone,
+html.light .contribution-table td div.contribution-member-phone {
+  color: #94A3B8 !important;
+  font-weight: 400 !important;
+}
+
+/* Financial Values */
+.contribution-due-amount,
+html.light .contribution-due-amount {
+  color: #F8FAFC !important;
+  font-weight: 600 !important;
+}
+
+.contribution-paid-amount,
+html.light .contribution-paid-amount {
+  color: #34D399 !important;
+  font-weight: 700 !important;
+}
+
+.contribution-paid-zero,
+html.light .contribution-paid-zero {
+  color: #94A3B8 !important;
+  font-weight: 500 !important;
+}
+
+.contribution-balance-due,
+html.light .contribution-balance-due {
+  color: #F87171 !important;
+  font-weight: 700 !important;
+}
+
+.contribution-balance-zero,
+html.light .contribution-balance-zero {
+  color: #94A3B8 !important;
+  font-weight: 500 !important;
+}
+
+/* Dates, Mode, Receipt */
+.contribution-date,
+html.light .contribution-date {
+  color: #CBD5E1 !important;
+}
+
+.contribution-mode-badge,
+html.light .contribution-mode-badge {
+  background-color: #1A2338 !important;
+  border: 1px solid #26344E !important;
+  color: #F1F5F9 !important;
+}
+
+.contribution-receipt-ref,
+html.light .contribution-receipt-ref {
+  color: #94A3B8 !important;
+}
+
+.contribution-dash,
+html.light .contribution-dash {
+  color: #64748B !important;
+}
+
+/* "This Member" Badge */
+.contribution-this-member-badge,
+html.light .contribution-this-member-badge {
+  background-color: rgba(37, 99, 235, 0.25) !important;
+  border: 1px solid rgba(96, 165, 250, 0.4) !important;
+  color: #93C5FD !important;
+  font-weight: 600 !important;
+}
+
+/* Status Badges inside Contribution Table */
+.status-badge-dark-paid,
+html.light .status-badge-dark-paid {
+  background-color: rgba(16, 185, 129, 0.18) !important;
+  color: #34D399 !important;
+  border-color: rgba(16, 185, 129, 0.45) !important;
+}
+
+.status-badge-dark-none,
+html.light .status-badge-dark-none {
+  background-color: #1E293B !important;
+  color: #CBD5E1 !important;
+  border-color: #334155 !important;
+}
+
+.status-badge-dark-pending,
+html.light .status-badge-dark-pending {
+  background-color: rgba(244, 63, 94, 0.2) !important;
+  color: #FB7185 !important;
+  border-color: rgba(244, 63, 94, 0.45) !important;
+}
+
+.status-badge-dark-partial,
+html.light .status-badge-dark-partial {
+  background-color: rgba(245, 158, 11, 0.2) !important;
+  color: #FBBF24 !important;
+  border-color: rgba(245, 158, 11, 0.45) !important;
+}
+
+.status-badge-dark-overdue,
+html.light .status-badge-dark-overdue {
+  background-color: rgba(244, 63, 94, 0.25) !important;
+  color: #FDA4AF !important;
+  border-color: rgba(244, 63, 94, 0.5) !important;
+}
+
+/* Hover States in Light Mode */
+html.light .hover\:bg-\[\#182032\]:hover,
+html.light .hover\:bg-\[\#1C2539\]:hover,
+html.light .hover\:bg-\[\#2B3952\]:hover,
+html.light .hover\:bg-\[\#151D2F\]:hover,
+html.light .hover\:bg-\[\#121827\]\/60:hover,
+html.light .hover\:bg-slate-700:hover,
+html.light .hover\:bg-slate-800:hover {
+  background-color: #F1F5F9 !important;
+}
+
+/* Inputs, Selects & Form Control Overrides in Light Mode */
+html.light input,
+html.light select,
+html.light textarea {
+  color: #0F172A !important;
+  background-color: #FFFFFF !important;
+  border-color: #CBD5E1 !important;
+}
+
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #94A3B8 !important;
+}
+
+html.light option {
+  background-color: #FFFFFF !important;
+  color: #0F172A !important;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0B0F17;
+}
+::-webkit-scrollbar-thumb {
+  background: #1F293D;
+  border-radius: 4px;
+}
+
+/* Date Input & Native Calendar Picker Icon - Theme-Aware Visibility */
+html:not(.light) input[type="date"],
+html.dark input[type="date"] {
+  color-scheme: normal !important;
+}
+
+html:not(.light) input[type="date"]::-webkit-calendar-picker-indicator,
+html.dark input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer !important;
+  filter: invert(1) !important;
+  -webkit-filter: invert(1) !important;
+  opacity: 0.9 !important;
+}
+
+html:not(.light) input[type="date"]::-webkit-calendar-picker-indicator:hover,
+html.dark input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1 !important;
+  filter: invert(1) brightness(1.3) !important;
+  -webkit-filter: invert(1) brightness(1.3) !important;
+}
+
+/* Light Theme Overrides for Date Inputs */
+html.light input[type="date"] {
+  color-scheme: light !important;
+}
+
+html.light input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: none !important;
+  -webkit-filter: none !important;
+  opacity: 0.75 !important;
+}
+
+html.light input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1 !important;
+  filter: none !important;
+  -webkit-filter: none !important;
+}
+/* Collect Action Button Contrast Rule */
+html.light .btn-collect,
+html.light a.btn-collect {
+  background-color: #EFF6FF !important;
+  color: #1D4ED8 !important;
+  border-color: #93C5FD !important;
+  font-weight: 600 !important;
+}
+
+html.light .btn-collect:hover,
+html.light a.btn-collect:hover {
+  background-color: #2563EB !important;
+  color: #FFFFFF !important;
+  border-color: #2563EB !important;
+}
+
+/* Member Selector Card High-Contrast Styling (Light & Dark Mode) */
+.member-select-card {
+  background-color: #0B0F17;
+  border-color: #1F293D;
+  color: #CBD5E1;
+  transition: all 0.15s ease-in-out;
+}
+
+.member-select-card:hover {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.member-select-card.selected {
+  background-color: rgba(30, 58, 138, 0.45) !important;
+  border-color: #3B82F6 !important;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.4) !important;
+}
+
+.member-select-card .member-card-name {
+  color: #F1F5F9;
+}
+
+.member-select-card .member-card-id {
+  color: #60A5FA;
+}
+
+.member-select-card .member-card-sub {
+  color: #94A3B8;
+}
+
+.member-select-card.selected .member-card-name {
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+}
+
+.member-select-card.selected .member-card-id {
+  color: #60A5FA !important;
+  font-weight: 700 !important;
+}
+
+.member-select-card.selected .member-card-sub {
+  color: #CBD5E1 !important;
+  font-weight: 500 !important;
+}
+
+/* Light Theme Overrides for Member Selector Cards */
+html.light .member-select-card {
+  background-color: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  color: #334155 !important;
+}
+
+html.light .member-select-card:hover {
+  border-color: #93C5FD !important;
+  background-color: #F8FAFC !important;
+}
+
+html.light .member-select-card .member-card-name {
+  color: #0F172A !important;
+}
+
+html.light .member-select-card .member-card-id {
+  color: #2563EB !important;
+}
+
+html.light .member-select-card .member-card-sub {
+  color: #475569 !important;
+}
+
+html.light .member-select-card.selected {
+  background-color: #E0EDFF !important;
+  border-color: #2563EB !important;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.3) !important;
+}
+
+html.light .member-select-card.selected .member-card-name {
+  color: #0F172A !important;
+  font-weight: 800 !important;
+}
+
+html.light .member-select-card.selected .member-card-id {
+  color: #1D4ED8 !important;
+  font-weight: 700 !important;
+}
+
+html.light .member-select-card.selected .member-card-sub {
+  color: #1E293B !important;
+  font-weight: 600 !important;
+}
+
+/* Printable Receipt Styling */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-receipt, #printable-receipt * {
+    visibility: visible;
+  }
+  #printable-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: white !important;
+    color: black !important;
+    padding: 20px;
+    box-shadow: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
