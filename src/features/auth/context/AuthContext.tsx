@@ -14,17 +14,31 @@ import {
 import { logActivity } from '@/shared/services/auditService';
 import { getAppData, saveAppData } from '@/shared/utils/storage';
 import { initializeLocalApplication } from '@/shared/utils/initialization';
+import {
+  USERS_STORAGE_KEY,
+  AUTH_STORAGE_KEY,
+  AuthSession,
+  initializeAuthStorage,
+  getStoredUsers,
+  saveStoredUsers,
+  getStoredAuthSession,
+  saveStoredAuthSession,
+  clearStoredAuthSession,
+} from '../utils/authStorage';
 
-export { ADMIN_CREDENTIALS, createDefaultSuperAdminUser };
-
-export const AUTH_STORAGE_KEY = 'chitfund_auth';
-export const USERS_STORAGE_KEY = 'chitfund_users';
-
-export interface AuthSession {
-  isAuthenticated: boolean;
-  userId: string | null;
-  email: string | null;
-}
+export {
+  ADMIN_CREDENTIALS,
+  createDefaultSuperAdminUser,
+  USERS_STORAGE_KEY,
+  AUTH_STORAGE_KEY,
+  initializeAuthStorage,
+  getStoredUsers,
+  saveStoredUsers,
+  getStoredAuthSession,
+  saveStoredAuthSession,
+  clearStoredAuthSession,
+};
+export type { AuthSession };
 
 export interface CreateUserData {
   name: string;
@@ -71,103 +85,9 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-/**
- * Load all stored users from the centralized LocalStorage app data.
- * Guarantees the primary Super Admin account is always present and active,
- * and migrates any existing user accounts seamlessly without data loss.
- */
-export const getStoredUsers = (): UserAccount[] => {
-  try {
-    initializeLocalApplication();
-    const appData = getAppData();
-    if (Array.isArray(appData.users) && appData.users.length > 0) {
-      const hasSuperAdmin = appData.users.some(
-        (u) =>
-          u.id === ROOT_SUPERADMIN_ID ||
-          u.role === 'Super Admin' ||
-          u.email.toLowerCase() === ADMIN_CREDENTIALS.email.toLowerCase()
-      );
-      if (!hasSuperAdmin) {
-        const updated = [createDefaultSuperAdminUser(), ...appData.users];
-        appData.users = updated;
-        saveAppData(appData);
-        try {
-          localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updated));
-        } catch {}
-        return updated;
-      }
-      return appData.users;
-    }
-
-    // Check legacy chitfund_users namespace if present to migrate
-    const legacyRaw = localStorage.getItem(USERS_STORAGE_KEY);
-    if (legacyRaw) {
-      const parsedLegacy = JSON.parse(legacyRaw);
-      if (Array.isArray(parsedLegacy) && parsedLegacy.length > 0) {
-        const hasSuperAdmin = parsedLegacy.some(
-          (u) =>
-            u.id === ROOT_SUPERADMIN_ID ||
-            u.role === 'Super Admin' ||
-            u.email.toLowerCase() === ADMIN_CREDENTIALS.email.toLowerCase()
-        );
-        const usersToSave = hasSuperAdmin
-          ? parsedLegacy
-          : [createDefaultSuperAdminUser(), ...parsedLegacy];
-        appData.users = usersToSave;
-        saveAppData(appData);
-        return usersToSave;
-      }
-    }
-
-    // Seed default Super Admin
-    const initialUsers = [createDefaultSuperAdminUser()];
-    appData.users = initialUsers;
-    saveAppData(appData);
-    try {
-      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(initialUsers));
-    } catch {}
-    return initialUsers;
-  } catch (err) {
-    console.error('[Auth] Failed to load users from app data:', err);
-  }
-  return [createDefaultSuperAdminUser()];
-};
-
-export const saveStoredUsers = (users: UserAccount[]): void => {
-  try {
-    const appData = getAppData();
-    appData.users = users;
-    saveAppData(appData);
-    // Keep legacy key mirrored for backwards compatibility
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
-  } catch (err) {
-    console.error('[Auth] Failed to save users to storage:', err);
-  }
-};
-
-/**
- * Load active session from LocalStorage.
- */
-export const getStoredAuthSession = (): AuthSession => {
-  try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return { isAuthenticated: false, userId: null, email: null };
-    const parsed = JSON.parse(raw);
-    if (parsed && parsed.isAuthenticated === true) {
-      return {
-        isAuthenticated: true,
-        userId: parsed.userId || ROOT_SUPERADMIN_ID,
-        email: parsed.email || ADMIN_CREDENTIALS.email,
-      };
-    }
-  } catch (err) {
-    console.error('[Auth] Failed to parse auth session from storage:', err);
-  }
-  return { isAuthenticated: false, userId: null, email: null };
-};
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   useEffect(() => {
+    initializeAuthStorage();
     initializeLocalApplication();
   }, []);
 
@@ -216,12 +136,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Artificial slight delay for realistic validation feedback (200ms)
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    const cleanInput = usernameOrEmail.trim().toLowerCase();
-    if (!cleanInput || !password) {
+    const cleanInput = (usernameOrEmail || '').trim().toLowerCase();
+    const cleanPassword = (password || '').trim();
+    if (!cleanInput || !cleanPassword) {
       return { success: false, message: 'Please enter both username/email and password.' };
     }
 
-    // Ensure local application data is initialized
+    // Ensure local application data and users are initialized
+    initializeAuthStorage();
     initializeLocalApplication();
 
     // Refresh users from storage to ensure latest data
@@ -229,7 +151,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Determine if input matches any known Super Admin aliases or credentials
     const isSuperAdminAlias =
-      cleanInput === ADMIN_CREDENTIALS.email.toLowerCase() ||
+      cleanInput === ADMIN_CREDENTIALS.email.trim().toLowerCase() ||
       cleanInput === 'admin@chitfund.com' ||
       cleanInput === 'admin' ||
       cleanInput === 'chitfundadmin' ||
@@ -240,7 +162,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Look for matching user by email or name
     let matchedUser = currentUsersList.find(
-      (u) => u.email.toLowerCase() === cleanInput || u.name.toLowerCase() === cleanInput
+      (u) => (u.email || '').trim().toLowerCase() === cleanInput || (u.name || '').trim().toLowerCase() === cleanInput
     );
 
     // Fallback: match Super Admin aliases
@@ -285,8 +207,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Check password: match against user's password OR default admin credential if Super Admin
     const isSuperAdmin = matchedUser.role === 'Super Admin' || matchedUser.id === ROOT_SUPERADMIN_ID;
     const isPasswordCorrect =
-      matchedUser.password === password ||
-      (isSuperAdmin && password === ADMIN_CREDENTIALS.password);
+      (matchedUser.password || '').trim() === cleanPassword ||
+      (isSuperAdmin && cleanPassword === ADMIN_CREDENTIALS.password.trim());
 
     if (!isPasswordCorrect) {
       logActivity({
@@ -308,9 +230,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       userId: matchedUser.id,
       email: matchedUser.email,
     };
-    try {
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newSession));
-    } catch {}
+    saveStoredAuthSession(newSession);
     setSession(newSession);
     setUsers(currentUsersList);
 
@@ -339,7 +259,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     // Strictly only remove authentication session. Never delete business or user data!
-    localStorage.removeItem(AUTH_STORAGE_KEY);
+    clearStoredAuthSession();
     setSession({ isAuthenticated: false, userId: null, email: null });
   }, [currentUser, session]);
 

@@ -28,13 +28,15 @@ export const Login: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password || isLoading) return;
+    const cleanEmail = email.trim();
+    const cleanPassword = password.trim();
+    if (!cleanEmail || !cleanPassword || isLoading) return;
 
     setIsLoading(true);
     setErrorMessage('');
 
     try {
-      const result = await login(email, password);
+      const result = await login(cleanEmail, cleanPassword);
       if (result.success) {
         const from = (location.state as any)?.from?.pathname;
         if (from && from !== '/login') {
@@ -92,16 +94,17 @@ export const Login: React.FC = () => {
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             {/* Email ID Field */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Email ID <span className="text-rose-400">*</span>
+              <label htmlFor="login-username" className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Email ID / Username <span className="text-rose-400">*</span>
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
+                  id="login-username"
                   type="text"
                   required
                   autoFocus
-                  placeholder="Enter email address"
+                  placeholder="Enter email address or username"
                   value={email}
                   onChange={(e) => {
                     setEmail(e.target.value);
@@ -114,12 +117,13 @@ export const Login: React.FC = () => {
 
             {/* Password Field */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              <label htmlFor="login-password" className="block text-xs font-semibold text-slate-300 mb-1.5">
                 Password <span className="text-rose-400">*</span>
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
+                  id="login-password"
                   type={showPassword ? 'text' : 'password'}
                   required
                   placeholder="Enter password"

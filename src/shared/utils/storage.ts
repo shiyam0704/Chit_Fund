@@ -50,18 +50,36 @@ export const getDefaultAppData = (): AppData => ({
 export const getAppData = (): AppData => {
   try {
     const raw = localStorage.getItem(APP_DATA_KEY);
+
+    // Read primary users store ('chitfund_users') if present
+    let primaryUsers: UserAccount[] | undefined;
+    const rawUsers = localStorage.getItem(USERS_STORAGE_KEY);
+    if (rawUsers) {
+      try {
+        const parsedUsers = JSON.parse(rawUsers);
+        if (Array.isArray(parsedUsers) && parsedUsers.length > 0) {
+          primaryUsers = parsedUsers;
+        }
+      } catch {}
+    }
+
     if (!raw) {
       const initial = getDefaultAppData();
+      if (primaryUsers && primaryUsers.length > 0) {
+        initial.users = primaryUsers;
+      }
       saveAppData(initial);
-      try {
-        localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(initial.users));
-      } catch {}
+      if (!rawUsers) {
+        try {
+          localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(initial.users));
+        } catch {}
+      }
       return initial;
     }
     const data = JSON.parse(raw);
-    const resolvedUsers: UserAccount[] = Array.isArray(data.users) && data.users.length > 0
+    const resolvedUsers: UserAccount[] = primaryUsers || (Array.isArray(data.users) && data.users.length > 0
       ? data.users
-      : [createDefaultSuperAdminUser()];
+      : [createDefaultSuperAdminUser()]);
 
     return {
       version: 2,

@@ -1,18 +1,13 @@
-import {
-  ROOT_SUPERADMIN_ID,
-  ADMIN_CREDENTIALS,
-  createDefaultSuperAdminUser,
-  DEFAULT_ROLE_PERMISSIONS,
-} from '@/features/auth/permissions';
+import { DEFAULT_ROLE_PERMISSIONS } from '@/features/auth/permissions';
+import { initializeAuthStorage } from '@/features/auth/utils/authStorage';
 import {
   APP_DATA_KEY,
-  AUTH_STORAGE_KEY,
-  USERS_STORAGE_KEY,
   defaultCompanySettings,
   getDefaultAppData,
   AppData,
 } from './storage';
-import { UserAccount } from '@/types';
+
+export { initializeAuthStorage };
 
 /**
  * Initializes local application data on first startup.
@@ -27,10 +22,13 @@ import { UserAccount } from '@/types';
  */
 export function initializeLocalApplication(): AppData {
   try {
+    // 1. Ensure authentication storage ('chitfund_users' and 'chitfund_auth') is initialized first
+    const users = initializeAuthStorage();
+
     const raw = localStorage.getItem(APP_DATA_KEY);
 
     if (!raw) {
-      // Fresh browser: initialize default app data structure with default admin user
+      // Fresh browser: initialize default app data structure
       const initialData: AppData = {
         version: 2,
         theme: 'dark',
@@ -40,25 +38,14 @@ export function initializeLocalApplication(): AppData {
         transactions: [],
         payouts: [],
         manualWinnerAssignments: {},
-        users: [createDefaultSuperAdminUser()],
+        users,
         roleDefaults: DEFAULT_ROLE_PERMISSIONS,
       };
 
       try {
         localStorage.setItem(APP_DATA_KEY, JSON.stringify(initialData));
-        localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(initialData.users));
       } catch (err) {
         console.error('[Init] Failed to write initial data to LocalStorage:', err);
-      }
-
-      // Initialize clean auth session if missing
-      if (!localStorage.getItem(AUTH_STORAGE_KEY)) {
-        try {
-          localStorage.setItem(
-            AUTH_STORAGE_KEY,
-            JSON.stringify({ isAuthenticated: false, userId: null, email: null })
-          );
-        } catch {}
       }
 
       return initialData;
@@ -78,51 +65,22 @@ export function initializeLocalApplication(): AppData {
 
     let needsSave = false;
 
-    // 1. Ensure users array exists and has at least one active Super Admin
-    let currentUsers: UserAccount[] = Array.isArray(data.users) ? data.users : [];
+    // Attach verified users list
+    data.users = users;
 
-    // Also check legacy USERS_STORAGE_KEY if data.users is empty
-    if (currentUsers.length === 0) {
-      const legacyRaw = localStorage.getItem(USERS_STORAGE_KEY);
-      if (legacyRaw) {
-        try {
-          const parsedLegacy = JSON.parse(legacyRaw);
-          if (Array.isArray(parsedLegacy) && parsedLegacy.length > 0) {
-            currentUsers = parsedLegacy;
-          }
-        } catch {}
-      }
-    }
-
-    const hasSuperAdmin = currentUsers.some(
-      (u) =>
-        (u.role === 'Super Admin' || u.id === ROOT_SUPERADMIN_ID || u.email.toLowerCase() === ADMIN_CREDENTIALS.email.toLowerCase()) &&
-        u.status !== 'Disabled'
-    );
-
-    if (!hasSuperAdmin) {
-      // Add default Super Admin account while preserving any existing user accounts
-      const defaultAdmin = createDefaultSuperAdminUser();
-      currentUsers = [defaultAdmin, ...currentUsers.filter((u) => u.id !== ROOT_SUPERADMIN_ID)];
-      data.users = currentUsers;
-      needsSave = true;
-    } else {
-      data.users = currentUsers;
-    }
-
-    // 2. Ensure companySettings exists
+    // Ensure companySettings exists
     if (!data.companySettings || typeof data.companySettings !== 'object') {
       data.companySettings = defaultCompanySettings;
       needsSave = true;
     }
 
-    // 3. Ensure roleDefaults exists
+    // Ensure roleDefaults exists
     if (!data.roleDefaults || typeof data.roleDefaults !== 'object') {
       data.roleDefaults = DEFAULT_ROLE_PERMISSIONS;
       needsSave = true;
     }
 
-    // 4. Ensure arrays exist
+    // Ensure arrays exist
     if (!Array.isArray(data.chits)) { data.chits = []; needsSave = true; }
     if (!Array.isArray(data.members)) { data.members = []; needsSave = true; }
     if (!Array.isArray(data.transactions)) { data.transactions = []; needsSave = true; }
@@ -138,21 +96,6 @@ export function initializeLocalApplication(): AppData {
       } catch (err) {
         console.error('[Init] Failed to save patched app data:', err);
       }
-    }
-
-    // Always keep USERS_STORAGE_KEY mirrored
-    try {
-      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(currentUsers));
-    } catch {}
-
-    // Ensure session key exists
-    if (!localStorage.getItem(AUTH_STORAGE_KEY)) {
-      try {
-        localStorage.setItem(
-          AUTH_STORAGE_KEY,
-          JSON.stringify({ isAuthenticated: false, userId: null, email: null })
-        );
-      } catch {}
     }
 
     return data as AppData;
