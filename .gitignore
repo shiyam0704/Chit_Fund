@@ -1,5 +1,7 @@
 node_modules/
 dist/
+dist-desktop/
+release/
 .env
 .env.*
 !.env.example
@@ -7,3 +9,4 @@ dist/
 *.tsbuildinfo
 .DS_Store
 Thumbs.db
+.vscode/*.png
