@@ -1,6 +1,10 @@
 {
   "typescript.tsdk": "node_modules/typescript/lib",
   "typescript.enablePromptUseWorkspaceTsdk": true,
+  "files.exclude": {
+    "dist-desktop": true,
+    "release": true
+  },
   "json.schemas": [
     {
       "fileMatch": ["package.json"],
