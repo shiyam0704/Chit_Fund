@@ -31,6 +31,7 @@ export const AuditTrail: React.FC = () => {
   const canView = isSuperAdmin() || hasPermission(PERMISSIONS.AUDIT_TRAIL_VIEW);
   const canExport = isSuperAdmin() || hasPermission(PERMISSIONS.AUDIT_TRAIL_EXPORT);
   const canPrint = isSuperAdmin() || hasPermission(PERMISSIONS.AUDIT_TRAIL_PRINT);
+  const canDelete = isSuperAdmin() || hasPermission(PERMISSIONS.AUDIT_TRAIL_DELETE);
 
   const [logs, setLogs] = useState<AuditLogEntry[]>(() => getAuditLogs());
   const [selectedLog, setSelectedLog] = useState<AuditLogEntry | null>(null);
@@ -314,15 +315,17 @@ export const AuditTrail: React.FC = () => {
           )}
 
           {/* Clear All Logs Button */}
-          <button
-            onClick={handleClearAllLogs}
-            disabled={logs.length === 0}
-            title="Delete all audit records"
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-rose-600/10 hover:bg-rose-600/20 border border-rose-500/20 text-xs font-semibold text-rose-400 hover:text-rose-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-sm"
-          >
-            <Trash2 className="w-4 h-4 text-rose-400" />
-            <span>Clear All</span>
-          </button>
+          {canDelete && (
+            <button
+              onClick={handleClearAllLogs}
+              disabled={logs.length === 0}
+              title="Delete all audit records"
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-rose-600/10 hover:bg-rose-600/20 border border-rose-500/20 text-xs font-semibold text-rose-400 hover:text-rose-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-sm"
+            >
+              <Trash2 className="w-4 h-4 text-rose-400" />
+              <span>Clear All</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -442,13 +445,15 @@ export const AuditTrail: React.FC = () => {
                             <Eye className="w-3.5 h-3.5" />
                             <span>View</span>
                           </button>
-                          <button
-                            onClick={() => handleDeleteSingleLog(log.id)}
-                            title="Delete this audit record"
-                            className="inline-flex items-center justify-center p-1.5 rounded-md bg-rose-600/10 hover:bg-rose-600/20 border border-rose-500/20 text-rose-400 hover:text-rose-300 transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {canDelete && (
+                            <button
+                              onClick={() => handleDeleteSingleLog(log.id)}
+                              title="Delete this audit record"
+                              className="inline-flex items-center justify-center p-1.5 rounded-md bg-rose-600/10 hover:bg-rose-600/20 border border-rose-500/20 text-rose-400 hover:text-rose-300 transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -525,7 +530,7 @@ export const AuditTrail: React.FC = () => {
         <AuditDetailModal
           log={selectedLog}
           onClose={() => setSelectedLog(null)}
-          onDelete={handleDeleteSingleLog}
+          onDelete={canDelete ? handleDeleteSingleLog : undefined}
         />
       )}
     </div>

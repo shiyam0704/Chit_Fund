@@ -128,6 +128,7 @@ export const PERMISSION_MODULE_GROUPS: ModuleGroupConfig[] = [
       { id: PERMISSIONS.AUDIT_TRAIL_VIEW, label: 'View Logs' },
       { id: PERMISSIONS.AUDIT_TRAIL_EXPORT, label: 'Export Logs' },
       { id: PERMISSIONS.AUDIT_TRAIL_PRINT, label: 'Print Logs' },
+      { id: PERMISSIONS.AUDIT_TRAIL_DELETE, label: 'Delete Logs' },
     ],
   },
   {

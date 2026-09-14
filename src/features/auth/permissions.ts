@@ -47,6 +47,7 @@ export const PERMISSIONS = {
   AUDIT_TRAIL_VIEW: 'audit_trail.view' as Permission,
   AUDIT_TRAIL_EXPORT: 'audit_trail.export' as Permission,
   AUDIT_TRAIL_PRINT: 'audit_trail.print' as Permission,
+  AUDIT_TRAIL_DELETE: 'audit_trail.delete' as Permission,
 
   // Backup & Restore
   BACKUP_VIEW: 'backup.view' as Permission,
