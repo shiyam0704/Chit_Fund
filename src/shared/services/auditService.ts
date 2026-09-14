@@ -182,382 +182,51 @@ export function getBrowserContext(): { ipAddress: string; userAgent: string } {
 }
 
 /**
- * Generates realistic initial operational audit logs if database is empty
- */
-function generateSeedAuditLogs(): AuditLogEntry[] {
-  const now = new Date();
-
-  // Helper to build dates
-  const makeDate = (hoursAgo: number, minutesAgo: number = 0) => {
-    const d = new Date(now.getTime() - (hoursAgo * 60 + minutesAgo) * 60 * 1000);
-    return d.toISOString();
-  };
-
-  const seed: AuditLogEntry[] = [
-    {
-      id: 'AUD-1726300001-001',
-      userId: 'USR-SUPERADMIN',
-      userName: 'Super Admin',
-      userRole: 'Super Admin',
-      action: 'UPDATE',
-      module: 'Chits',
-      recordId: 'CHIT-0008',
-      recordName: 'Lakshmi Deepam 25M',
-      description: 'Updated monthly installment from ₹5,000 to ₹6,000',
-      beforeData: { id: 'CHIT-0008', name: 'Lakshmi Deepam 25M', monthlyInstallment: 5000, chitAmount: 100000 },
-      afterData: { id: 'CHIT-0008', name: 'Lakshmi Deepam 25M', monthlyInstallment: 6000, chitAmount: 100000 },
-      changedFields: [
-        { field: 'monthlyInstallment', label: 'Monthly Amount', previousValue: '₹5,000', newValue: '₹6,000' },
-      ],
-      ipAddress: '192.168.1.105',
-      userAgent: 'Chrome / Windows 11',
-      status: 'Success',
-      createdAt: makeDate(0, 17),
-    },
-    {
-      id: 'AUD-1726300002-002',
-      userId: 'USR-STAFF-02',
-      userName: 'Ramesh',
-      userRole: 'Staff',
-      action: 'CREATE',
-      module: 'Members',
-      recordId: 'MEM-00125',
-      recordName: 'Suresh Kumar',
-      description: 'Added new member "Suresh Kumar"',
-      afterData: {
-        id: 'MEM-00125',
-        name: 'Suresh Kumar',
-        phone: '9876543210',
-        email: 'suresh.k@gmail.com',
-        status: 'Active',
-        joinedDate: now.toISOString().slice(0, 10),
-      },
-      ipAddress: '192.168.1.112',
-      userAgent: 'Chrome / Windows 10',
-      status: 'Success',
-      createdAt: makeDate(0, 20),
-    },
-    {
-      id: 'AUD-1726300003-003',
-      userId: 'USR-STAFF-02',
-      userName: 'Ramesh',
-      userRole: 'Staff',
-      action: 'CREATE',
-      module: 'Payments',
-      recordId: 'REC-20260914-9841',
-      recordName: 'Receipt #REC-20260914-9841',
-      description: 'Recorded installment collection of ₹6,000 via UPI (PhonePe) for Suresh Kumar',
-      afterData: {
-        receiptNo: 'REC-20260914-9841',
-        memberName: 'Suresh Kumar',
-        amount: 6000,
-        paymentMode: 'UPI',
-        status: 'Paid',
-      },
-      ipAddress: '192.168.1.112',
-      userAgent: 'Chrome / Windows 10',
-      status: 'Success',
-      createdAt: makeDate(0, 35),
-    },
-    {
-      id: 'AUD-1726300004-004',
-      userId: 'USR-SUPERADMIN',
-      userName: 'Super Admin',
-      userRole: 'Super Admin',
-      action: 'LOGIN_SUCCESS',
-      module: 'Authentication',
-      description: 'Successful administrative login via credentials',
-      ipAddress: '192.168.1.105',
-      userAgent: 'Chrome / Windows 11',
-      status: 'Success',
-      createdAt: makeDate(1, 10),
-    },
-    {
-      id: 'AUD-1726300005-005',
-      userId: 'unknown',
-      userName: 'rajesh_staff',
-      userRole: 'Guest',
-      action: 'LOGIN_FAILED',
-      module: 'Authentication',
-      description: 'Failed password verification for user "rajesh_staff"',
-      ipAddress: '192.168.1.120',
-      userAgent: 'Firefox / Android',
-      status: 'Failed',
-      failureReason: 'Invalid Password',
-      createdAt: makeDate(1, 45),
-    },
-    {
-      id: 'AUD-1726300006-006',
-      userId: 'USR-SUPERADMIN',
-      userName: 'Super Admin',
-      userRole: 'Super Admin',
-      action: 'UPDATE',
-      module: 'Settings',
-      recordId: 'COMPANY_SETTINGS',
-      recordName: 'Company Profile',
-      description: 'Updated company profile and contact phone number',
-      beforeData: { companyName: 'Chit Fund Management', phone: '9876543210' },
-      afterData: { companyName: 'Chit Fund Management', phone: '9876500000' },
-      changedFields: [
-        { field: 'phone', label: 'Phone Number', previousValue: '9876543210', newValue: '9876500000' },
-      ],
-      ipAddress: '192.168.1.105',
-      userAgent: 'Chrome / Windows 11',
-      status: 'Success',
-      createdAt: makeDate(2, 15),
-    },
-    {
-      id: 'AUD-1726300007-007',
-      userId: 'USR-STAFF-02',
-      userName: 'Ramesh',
-      userRole: 'Staff',
-      action: 'CREATE',
-      module: 'Collections',
-      recordId: 'REC-20260914-1102',
-      recordName: 'Collection Batch #14',
-      description: 'Recorded cash collection batch of ₹15,000 for Gold Group 2026',
-      ipAddress: '192.168.1.112',
-      userAgent: 'Chrome / Windows 10',
-      status: 'Success',
-      createdAt: makeDate(3, 2),
-    },
-    {
-      id: 'AUD-1726300008-008',
-      userId: 'USR-SUPERADMIN',
-      userName: 'Super Admin',
-      userRole: 'Super Admin',
-      action: 'DELETE',
-      module: 'Chits',
-      recordId: 'CHIT-TEST-99',
-      recordName: 'Draft Test Plan 50K',
-      description: 'Deleted obsolete draft chit plan "Draft Test Plan 50K"',
-      beforeData: { id: 'CHIT-TEST-99', name: 'Draft Test Plan 50K', status: 'Draft', chitAmount: 50000 },
-      ipAddress: '192.168.1.105',
-      userAgent: 'Chrome / Windows 11',
-      status: 'Success',
-      createdAt: makeDate(4, 30),
-    },
-    {
-      id: 'AUD-1726300009-009',
-      userId: 'USR-SUPERADMIN',
-      userName: 'Super Admin',
-      userRole: 'Super Admin',
-      action: 'PASSWORD_RESET',
-      module: 'Users',
-      recordId: 'USR-STAFF-02',
-      recordName: 'Ramesh (Staff)',
-      description: 'Reset password credentials for staff member Ramesh',
-      ipAddress: '192.168.1.105',
-      userAgent: 'Chrome / Windows 11',
-      status: 'Success',
-      createdAt: makeDate(5, 10),
-    },
-    {
-      id: 'AUD-1726300010-010',
-      userId: 'USR-SUPERADMIN',
-      userName: 'Super Admin',
-      userRole: 'Super Admin',
-      action: 'CREATE',
-      module: 'Chits',
-      recordId: 'CHIT-0009',
-      recordName: 'Silver Fortune 20M',
-      description: 'Created new chit scheme "Silver Fortune 20M" with total value of ₹2,00,000',
-      afterData: { id: 'CHIT-0009', name: 'Silver Fortune 20M', chitAmount: 200000, durationMonths: 20, monthlyInstallment: 10000 },
-      ipAddress: '192.168.1.105',
-      userAgent: 'Chrome / Windows 11',
-      status: 'Success',
-      createdAt: makeDate(6, 0),
-    },
-    // Yesterday and earlier records
-    {
-      id: 'AUD-1726200001-011',
-      userId: 'USR-SUPERADMIN',
-      userName: 'Super Admin',
-      userRole: 'Super Admin',
-      action: 'CREATE',
-      module: 'Members',
-      recordId: 'MEM-00124',
-      recordName: 'Kavitha M',
-      description: 'Added new member "Kavitha M" to Member Directory',
-      afterData: { id: 'MEM-00124', name: 'Kavitha M', phone: '9789012345', status: 'Active' },
-      ipAddress: '192.168.1.105',
-      userAgent: 'Chrome / Windows 11',
-      status: 'Success',
-      createdAt: makeDate(26, 0),
-    },
-    {
-      id: 'AUD-1726200002-012',
-      userId: 'USR-STAFF-01',
-      userName: 'Priya',
-      userRole: 'Staff',
-      action: 'CREATE',
-      module: 'Payments',
-      recordId: 'REC-20260913-7712',
-      recordName: 'Receipt #REC-20260913-7712',
-      description: 'Recorded installment payment of ₹10,000 for member Kavitha M',
-      ipAddress: '192.168.1.114',
-      userAgent: 'Safari / macOS',
-      status: 'Success',
-      createdAt: makeDate(28, 15),
-    },
-    {
-      id: 'AUD-1726200003-013',
-      userId: 'USR-STAFF-01',
-      userName: 'Priya',
-      userRole: 'Staff',
-      action: 'CANCEL',
-      module: 'Receipts',
-      recordId: 'REC-20260913-5501',
-      recordName: 'Receipt #REC-20260913-5501',
-      description: 'Cancelled duplicate receipt entry #REC-20260913-5501',
-      ipAddress: '192.168.1.114',
-      userAgent: 'Safari / macOS',
-      status: 'Success',
-      createdAt: makeDate(30, 40),
-    },
-    {
-      id: 'AUD-1726200004-014',
-      userId: 'USR-SUPERADMIN',
-      userName: 'Super Admin',
-      userRole: 'Super Admin',
-      action: 'UPDATE',
-      module: 'Settings',
-      recordId: 'CHIT_RULES',
-      recordName: 'Default Commission & Grace Period',
-      description: 'Updated default commission rate and grace period days',
-      beforeData: { defaultCommission: 4, gracePeriod: 3 },
-      afterData: { defaultCommission: 5, gracePeriod: 5 },
-      changedFields: [
-        { field: 'defaultCommission', label: 'Default Commission (%)', previousValue: '4%', newValue: '5%' },
-        { field: 'gracePeriod', label: 'Grace Period (Days)', previousValue: '3 Days', newValue: '5 Days' },
-      ],
-      ipAddress: '192.168.1.105',
-      userAgent: 'Chrome / Windows 11',
-      status: 'Success',
-      createdAt: makeDate(34, 0),
-    },
-    {
-      id: 'AUD-1726100001-015',
-      userId: 'USR-SUPERADMIN',
-      userName: 'Super Admin',
-      userRole: 'Super Admin',
-      action: 'CREATE',
-      module: 'Users',
-      recordId: 'USR-STAFF-03',
-      recordName: 'Anand Sharma',
-      description: 'Created new staff operator account for Anand Sharma',
-      afterData: { id: 'USR-STAFF-03', name: 'Anand Sharma', email: 'anand@chitfund.com', role: 'Staff' },
-      ipAddress: '192.168.1.105',
-      userAgent: 'Chrome / Windows 11',
-      status: 'Success',
-      createdAt: makeDate(52, 30),
-    },
-    {
-      id: 'AUD-1726100002-016',
-      userId: 'USR-SUPERADMIN',
-      userName: 'Super Admin',
-      userRole: 'Super Admin',
-      action: 'DELETE',
-      module: 'Members',
-      recordId: 'MEM-TEMP-04',
-      recordName: 'Unverified Test Record',
-      description: 'Removed unverified member entry #MEM-TEMP-04',
-      beforeData: { id: 'MEM-TEMP-04', name: 'Unverified Test Record', phone: '0000000000' },
-      ipAddress: '192.168.1.105',
-      userAgent: 'Chrome / Windows 11',
-      status: 'Success',
-      createdAt: makeDate(75, 0),
-    },
-    {
-      id: 'AUD-1726000001-017',
-      userId: 'USR-SUPERADMIN',
-      userName: 'Super Admin',
-      userRole: 'Super Admin',
-      action: 'EXPORT',
-      module: 'Reports',
-      recordId: 'REPORT-COLLECTION-AUG',
-      recordName: 'Monthly Collection Report (August)',
-      description: 'Exported monthly collection audit summary to Excel format',
-      ipAddress: '192.168.1.105',
-      userAgent: 'Chrome / Windows 11',
-      status: 'Success',
-      createdAt: makeDate(120, 0),
-    },
-    {
-      id: 'AUD-1725900001-018',
-      userId: 'USR-SUPERADMIN',
-      userName: 'Super Admin',
-      userRole: 'Super Admin',
-      action: 'CREATE',
-      module: 'Chits',
-      recordId: 'CHIT-0007',
-      recordName: 'Dhanlaxmi 15M Scheme',
-      description: 'Configured new scheme "Dhanlaxmi 15M Scheme" with ₹1,50,000 corpus',
-      afterData: { id: 'CHIT-0007', name: 'Dhanlaxmi 15M Scheme', chitAmount: 150000, durationMonths: 15 },
-      ipAddress: '192.168.1.105',
-      userAgent: 'Chrome / Windows 11',
-      status: 'Success',
-      createdAt: makeDate(200, 0),
-    },
-    {
-      id: 'AUD-1725800001-019',
-      userId: 'USR-SUPERADMIN',
-      userName: 'Super Admin',
-      userRole: 'Super Admin',
-      action: 'PRINT',
-      module: 'Receipts',
-      recordId: 'REC-20260908-0012',
-      recordName: 'Payment Receipt #REC-20260908-0012',
-      description: 'Printed hardcopy customer installment payment receipt',
-      ipAddress: '192.168.1.105',
-      userAgent: 'Chrome / Windows 11',
-      status: 'Success',
-      createdAt: makeDate(280, 0),
-    },
-    {
-      id: 'AUD-1725700001-020',
-      userId: 'USR-SUPERADMIN',
-      userName: 'Super Admin',
-      userRole: 'Super Admin',
-      action: 'LOGIN_SUCCESS',
-      module: 'Authentication',
-      description: 'Initial system administrator login session initialized',
-      ipAddress: '192.168.1.105',
-      userAgent: 'Chrome / Windows 11',
-      status: 'Success',
-      createdAt: makeDate(350, 0),
-    },
-  ];
-
-  return seed;
-}
-
-/**
  * Loads all audit logs from storage.
- * If storage is uninitialized, populates realistic initial seed logs.
+ * Starts with an empty clean array and automatically purges any legacy dummy seed logs.
  */
 export function getAuditLogs(): AuditLogEntry[] {
   try {
     const raw = localStorage.getItem(AUDIT_STORAGE_KEY);
     if (!raw) {
-      const seed = generateSeedAuditLogs();
-      try {
-        localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(seed));
-      } catch {}
-      return seed;
+      return [];
     }
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      const seed = generateSeedAuditLogs();
-      try {
-        localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(seed));
-      } catch {}
-      return seed;
+    if (!Array.isArray(parsed)) {
+      return [];
     }
-    return parsed;
+    // Clean out any legacy mock/seed logs if present in local storage
+    const cleaned = parsed.filter(
+      (log) =>
+        !log.id?.startsWith('AUD-17263000') &&
+        !log.id?.startsWith('AUD-17257000') &&
+        log.recordName !== 'Lakshmi Deepam 25M' &&
+        log.recordName !== 'Silver Fortune 20M' &&
+        log.recordName !== 'Dhanlaxmi 15M Scheme'
+    );
+    if (cleaned.length !== parsed.length) {
+      try {
+        localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(cleaned));
+      } catch {}
+    }
+    return cleaned;
   } catch (err) {
     console.error('[AuditService] Failed to read audit logs:', err);
     return [];
+  }
+}
+
+/**
+ * Completely clears all audit logs from storage.
+ */
+export function clearAllAuditLogs(): void {
+  try {
+    localStorage.removeItem(AUDIT_STORAGE_KEY);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('chitfund_audit_updated', { detail: 0 }));
+    }
+  } catch (err) {
+    console.error('[AuditService] Failed to clear audit logs:', err);
   }
 }
 

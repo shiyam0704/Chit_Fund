@@ -15,7 +15,7 @@ import {
   updateAppData,
   defaultCompanySettings,
 } from '@/shared/utils/storage';
-import { logActivity } from '@/shared/services/auditService';
+import { logActivity, clearAllAuditLogs } from '@/shared/services/auditService';
 
 interface Toast {
   id: string;
@@ -66,6 +66,7 @@ interface ChitContextType {
   activeReceiptModal: PaymentTransaction | null;
   openReceipt: (txn: PaymentTransaction) => void;
   closeReceipt: () => void;
+  clearAllData: () => void;
 }
 
 const ChitContext = createContext<ChitContextType | undefined>(undefined);
@@ -1424,6 +1425,24 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const openReceipt = (txn: PaymentTransaction) => setActiveReceiptModal(txn);
   const closeReceipt = () => setActiveReceiptModal(null);
 
+  const clearAllData = () => {
+    setChits([]);
+    setMembers([]);
+    setTransactions([]);
+    setPayouts([]);
+    setManualWinnerAssignments({});
+    updateAppData((prev) => ({
+      ...prev,
+      chits: [],
+      members: [],
+      transactions: [],
+      payouts: [],
+      manualWinnerAssignments: {},
+    }));
+    clearAllAuditLogs();
+    addToast('Data Cleared', 'All test schemes, members, transactions, and audit logs have been cleared successfully.', 'info');
+  };
+
   return (
     <ChitContext.Provider
       value={{
@@ -1468,6 +1487,7 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
         activeReceiptModal,
         openReceipt,
         closeReceipt,
+        clearAllData,
       }}
     >
       {children}

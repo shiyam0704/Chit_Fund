@@ -15,11 +15,12 @@ import {
   RotateCcw,
   CheckCircle2,
   AlertCircle,
+  Trash2,
 } from 'lucide-react';
 import { UserManagementTable, PERMISSION_MODULE_GROUPS } from '../components/UserManagementTable';
 
 export const Settings: React.FC = () => {
-  const { companySettings, updateCompanySettings, addToast } = useChit();
+  const { companySettings, updateCompanySettings, addToast, clearAllData } = useChit();
   const { hasPermission, isSuperAdmin, getRoleDefaults, updateRoleDefaults } = useAuth();
 
   // Super Admin is the ONLY role permitted to view or manage Users and Role Permissions Matrix
@@ -118,6 +119,7 @@ export const Settings: React.FC = () => {
           <div className="bg-[#121827] border border-[#1F293D] p-6 rounded-2xl shadow-xl">
             {/* Section 1: Company Settings */}
             {activeSection === 'Company' && (
+              <div className="space-y-6">
               <form onSubmit={handleSubmit} className="space-y-4 text-xs">
                 <h3 className="text-sm font-bold text-slate-100 pb-3 border-b border-[#1F293D]">
                   Company Profile & Branding
@@ -183,12 +185,44 @@ export const Settings: React.FC = () => {
                   <button
                     type="submit"
                     className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs shadow-lg shadow-blue-600/30"
-
                   >
                     <Save className="w-4 h-4" /> Save Company Settings
                   </button>
                 </div>
               </form>
+
+              {/* Danger Zone: Clean Slate / Reset All Test Data */}
+              {canManageUsers && (
+                <div className="mt-8 pt-6 border-t border-red-500/20 bg-red-500/5 rounded-2xl p-4 border border-red-500/10">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <h4 className="text-sm font-bold text-red-400 flex items-center gap-2">
+                        <Trash2 className="w-4 h-4" /> Reset All Dummy / Test Data
+                      </h4>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Wipe all dummy/test schemes, members, transactions, and audit logs to start completely fresh. Your Super Admin login account is safely preserved.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            'Are you sure you want to permanently clear all dummy/test data (schemes, members, transactions, and audit logs)? Your Super Admin login will remain active.'
+                          )
+                        ) {
+                          clearAllData();
+                        }
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 text-red-300 hover:text-white text-xs font-bold transition-all shrink-0 cursor-pointer flex items-center gap-2"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Clear All Data</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
             )}
 
             {/* Section 2: Chit Rules */}
