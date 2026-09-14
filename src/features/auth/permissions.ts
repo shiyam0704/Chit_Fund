@@ -42,6 +42,17 @@ export const PERMISSIONS = {
   USERS_MANAGE_PERMISSIONS: 'users.manage_permissions' as Permission,
   USERS_RESET_PASSWORD: 'users.reset_password' as Permission,
   USERS_ROLE_PERMISSIONS: 'users.role_permissions' as Permission,
+
+  // Audit Trail
+  AUDIT_TRAIL_VIEW: 'audit_trail.view' as Permission,
+  AUDIT_TRAIL_EXPORT: 'audit_trail.export' as Permission,
+  AUDIT_TRAIL_PRINT: 'audit_trail.print' as Permission,
+
+  // Backup & Restore
+  BACKUP_VIEW: 'backup.view' as Permission,
+  BACKUP_CREATE: 'backup.create' as Permission,
+  BACKUP_RESTORE: 'backup.restore' as Permission,
+  BACKUP_DOWNLOAD: 'backup.download' as Permission,
 } as const;
 
 export const ALL_PERMISSIONS: Permission[] = Object.values(PERMISSIONS);
@@ -62,6 +73,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.REPORTS_VIEW,
     PERMISSIONS.REPORTS_EXPORT,
     PERMISSIONS.SETTINGS_VIEW,
+    PERMISSIONS.BACKUP_VIEW,
+    PERMISSIONS.BACKUP_CREATE,
+    PERMISSIONS.BACKUP_DOWNLOAD,
   ],
   Staff: [
     PERMISSIONS.DASHBOARD_VIEW,

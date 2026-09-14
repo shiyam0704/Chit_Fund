@@ -3,6 +3,7 @@ import { useChit } from '@/shared/context/ChitContext';
 import { useAuth, PERMISSIONS } from '@/features/auth';
 import { exportTableToPdf, exportTableToCsv } from '../utils/exportUtils';
 import { parseDate, filterByDate } from '@/shared/utils/dateUtils';
+import { BackupRestoreModal } from '../components/BackupRestoreModal';
 import {
   FileBarChart,
   Download,
@@ -12,6 +13,7 @@ import {
   RotateCcw,
   Calendar,
   Filter,
+  HardDriveDownload,
 } from 'lucide-react';
 
 const REPORT_TYPES = [
@@ -30,7 +32,9 @@ export const Reports: React.FC = () => {
   const { transactions, chits, members, addToast } = useChit();
   const { hasPermission, isSuperAdmin } = useAuth();
   const canExport = isSuperAdmin() || hasPermission(PERMISSIONS.REPORTS_EXPORT);
+  const canBackup = isSuperAdmin() || hasPermission(PERMISSIONS.BACKUP_VIEW) || hasPermission(PERMISSIONS.BACKUP_CREATE);
 
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [reportType, setReportType] = useState<ReportType>('Daily Collection');
   const [dateFilter, setDateFilter] = useState('All');
   const [fromDate, setFromDate] = useState('');
@@ -322,35 +326,49 @@ export const Reports: React.FC = () => {
           <p className="text-sm text-slate-400 mt-1">Generate collection & financial audit reports</p>
         </div>
 
-        {canExport && (
+        {(canBackup || canExport) && (
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={handleExportCsv}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#121827] border border-[#1F293D] hover:border-emerald-500/40 text-emerald-400 text-xs font-semibold transition-colors cursor-pointer"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Export Excel</span>
-            </button>
-            <button
-              onClick={handleExportPdf}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#121827] border border-[#1F293D] hover:border-blue-500/40 text-blue-400 text-xs font-semibold transition-colors cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Export PDF</span>
-            </button>
-            <button
-              onClick={() => {
-                if (!canExport) {
-                  addToast('Permission Denied', 'You do not have permission to print reports.', 'error');
-                  return;
-                }
-                handleExportPdf();
-              }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-lg shadow-blue-600/30 transition-all cursor-pointer"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Print Report</span>
-            </button>
+            {canBackup && (
+              <button
+                onClick={() => setIsBackupModalOpen(true)}
+                title="Create Complete System Backup or Restore Data"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#121827] border border-[#1F293D] hover:border-purple-500/50 text-purple-400 hover:text-purple-300 text-xs font-semibold transition-colors cursor-pointer shadow-sm"
+              >
+                <HardDriveDownload className="w-3.5 h-3.5 text-purple-400" />
+                <span>Backup</span>
+              </button>
+            )}
+            {canExport && (
+              <>
+                <button
+                  onClick={handleExportCsv}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#121827] border border-[#1F293D] hover:border-emerald-500/40 text-emerald-400 text-xs font-semibold transition-colors cursor-pointer shadow-sm"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Export Excel</span>
+                </button>
+                <button
+                  onClick={handleExportPdf}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#121827] border border-[#1F293D] hover:border-blue-500/40 text-blue-400 text-xs font-semibold transition-colors cursor-pointer shadow-sm"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export PDF</span>
+                </button>
+                <button
+                  onClick={() => {
+                    if (!canExport) {
+                      addToast('Permission Denied', 'You do not have permission to print reports.', 'error');
+                      return;
+                    }
+                    handleExportPdf();
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-lg shadow-blue-600/30 transition-all cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print Report</span>
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -685,6 +703,12 @@ export const Reports: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Complete System Backup & Restore Modal */}
+      <BackupRestoreModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+      />
     </div>
   );
 };

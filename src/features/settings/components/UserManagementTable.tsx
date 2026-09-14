@@ -120,6 +120,27 @@ export const PERMISSION_MODULE_GROUPS: ModuleGroupConfig[] = [
       { id: PERMISSIONS.USERS_ROLE_PERMISSIONS, label: 'Role Permissions' },
     ],
   },
+  {
+    id: 'audit_trail',
+    name: 'Audit Trail',
+    description: 'Activity logs, change tracking history, security audit records',
+    permissions: [
+      { id: PERMISSIONS.AUDIT_TRAIL_VIEW, label: 'View Logs' },
+      { id: PERMISSIONS.AUDIT_TRAIL_EXPORT, label: 'Export Logs' },
+      { id: PERMISSIONS.AUDIT_TRAIL_PRINT, label: 'Print Logs' },
+    ],
+  },
+  {
+    id: 'backup',
+    name: 'Backup & Restore',
+    description: 'Create system snapshots, download .chitbackup files, and restore data',
+    permissions: [
+      { id: PERMISSIONS.BACKUP_VIEW, label: 'View Backup' },
+      { id: PERMISSIONS.BACKUP_CREATE, label: 'Create Backup' },
+      { id: PERMISSIONS.BACKUP_DOWNLOAD, label: 'Download Backup' },
+      { id: PERMISSIONS.BACKUP_RESTORE, label: 'Restore Backup' },
+    ],
+  },
 ];
 
 /**

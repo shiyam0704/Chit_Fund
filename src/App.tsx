@@ -8,6 +8,7 @@ import { Dashboard } from '@/features/dashboard';
 import { Chits, ChitDetail } from '@/features/chits';
 import { Members, MemberDetail } from '@/features/members';
 import { Reports } from '@/features/reports';
+import { AuditTrail } from '@/features/audit';
 import { Settings } from '@/features/settings';
 
 /**
@@ -31,6 +32,9 @@ const RootRedirect: React.FC = () => {
   }
   if (hasPermission(PERMISSIONS.REPORTS_VIEW)) {
     return <Navigate to="/reports" replace />;
+  }
+  if (hasPermission(PERMISSIONS.AUDIT_TRAIL_VIEW)) {
+    return <Navigate to="/audit-trail" replace />;
   }
   if (hasPermission(PERMISSIONS.SETTINGS_VIEW)) {
     return <Navigate to="/settings" replace />;
@@ -148,6 +152,14 @@ export const AppRoutes: React.FC = () => {
           element={
             <ProtectedRoute requiredPermission={PERMISSIONS.REPORTS_VIEW}>
               <Reports />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/audit-trail"
+          element={
+            <ProtectedRoute requiredPermission={PERMISSIONS.AUDIT_TRAIL_VIEW}>
+              <AuditTrail />
             </ProtectedRoute>
           }
         />

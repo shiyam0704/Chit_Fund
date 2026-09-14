@@ -6,6 +6,7 @@ import {
   Layers,
   Users,
   FileBarChart,
+  ShieldCheck,
   Settings as SettingsIcon,
   X,
   Coins,
@@ -24,6 +25,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen 
     { name: 'Chits', path: '/chits', icon: Layers, permission: PERMISSIONS.CHITS_VIEW },
     { name: 'Members', path: '/members', icon: Users, permission: PERMISSIONS.MEMBERS_VIEW },
     { name: 'Reports', path: '/reports', icon: FileBarChart, permission: PERMISSIONS.REPORTS_VIEW },
+    { name: 'Audit Trail', path: '/audit-trail', icon: ShieldCheck, permission: PERMISSIONS.AUDIT_TRAIL_VIEW },
     { name: 'Settings', path: '/settings', icon: SettingsIcon, permission: PERMISSIONS.SETTINGS_VIEW },
   ];
 

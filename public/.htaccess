@@ -1,0 +1,79 @@
+# ----------------------------------------------------------------------
+# 1. PREVENT DIRECTORY BROWSING & ACCESS TO SENSITIVE FILES
+# ----------------------------------------------------------------------
+Options -Indexes
+
+# Block sensitive and hidden files (.env, .git, package.json, lock files, source files)
+<FilesMatch "(^\.|\.(env|git|json|lock|yaml|yml|ts|tsx|md|config|bak|sql|sh|log))$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
+
+# ----------------------------------------------------------------------
+# 2. HTTP PRODUCTION SECURITY HEADERS (Hostinger / Apache / LiteSpeed)
+# ----------------------------------------------------------------------
+<IfModule mod_headers.c>
+  # Protect against clickjacking (embedding inside unauthorized iframes)
+  Header always set X-Frame-Options "SAMEORIGIN"
+
+  # Protect against MIME type sniffing
+  Header always set X-Content-Type-Options "nosniff"
+
+  # Protect against XSS in older legacy browsers
+  Header always set X-XSS-Protection "1; mode=block"
+
+  # Control Referrer information leakage
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+  # Restrict browser APIs / hardware capabilities
+  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+
+  # Enforce HTTPS (HSTS - 1 year)
+  Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+  # Content Security Policy (CSP) tailored for React Vite + Google Fonts + Lucide
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self';"
+</IfModule>
+
+# ----------------------------------------------------------------------
+# 3. STATIC ASSET CACHING
+# ----------------------------------------------------------------------
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresDefault "access plus 1 month"
+
+  # HTML files - do not cache heavily so updates reflect immediately
+  ExpiresByType text/html "access plus 0 seconds"
+
+  # JavaScript and CSS (Vite produces hashed filenames)
+  ExpiresByType text/css "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 year"
+
+  # Images and fonts
+  ExpiresByType image/x-icon "access plus 1 year"
+  ExpiresByType image/png "access plus 1 year"
+  ExpiresByType image/jpeg "access plus 1 year"
+  ExpiresByType image/svg+xml "access plus 1 year"
+  ExpiresByType font/woff2 "access plus 1 year"
+</IfModule>
+
+# ----------------------------------------------------------------------
+# 4. SINGLE PAGE APPLICATION (SPA) ROUTING REWRITE
+# ----------------------------------------------------------------------
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Allow existing real files and directories to be served directly
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Redirect all other SPA routes to index.html
+  RewriteRule ^ index.html [L]
+</IfModule>

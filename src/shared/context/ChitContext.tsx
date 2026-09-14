@@ -15,6 +15,7 @@ import {
   updateAppData,
   defaultCompanySettings,
 } from '@/shared/utils/storage';
+import { logActivity } from '@/shared/services/auditService';
 
 interface Toast {
   id: string;
@@ -229,6 +230,18 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const updated = { ...companySettings, ...settings };
     setCompanySettings(updated);
     updateAppData((prev) => ({ ...prev, companySettings: updated }));
+
+    logActivity({
+      action: 'UPDATE',
+      module: 'Settings',
+      recordId: 'COMPANY_SETTINGS',
+      recordName: updated.companyName || 'Company Settings',
+      description: 'Updated company profile and business settings',
+      beforeData: companySettings,
+      afterData: updated,
+      status: 'Success',
+    });
+
     addToast('Settings Saved', 'Company settings updated successfully', 'success');
   };
 
@@ -518,13 +531,39 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setChits((prev) => [newChit, ...prev]);
     updateAppData((prev) => ({ ...prev, chits: [newChit, ...prev.chits] }));
+
+    logActivity({
+      action: 'CREATE',
+      module: 'Chits',
+      recordId: newChit.id,
+      recordName: newChit.name,
+      description: `Created new chit scheme "${newChit.name}" with total value of ₹${newChit.chitAmount.toLocaleString('en-IN')}`,
+      afterData: newChit,
+      status: 'Success',
+    });
+
     addToast('Chit Created', `Scheme ${newChit.name} created successfully`, 'success');
     return newChit;
   };
 
   const updateChit = (id: string, chitData: Partial<ChitScheme>) => {
+    const existing = chits.find((c) => c.id === id);
     setChits((prev) => prev.map((c) => (c.id === id ? { ...c, ...chitData } : c)));
     updateAppData((prev) => ({ ...prev, chits: prev.chits.map((c) => (c.id === id ? { ...c, ...chitData } : c)) }));
+
+    if (existing) {
+      logActivity({
+        action: 'UPDATE',
+        module: 'Chits',
+        recordId: id,
+        recordName: existing.name,
+        description: `Updated chit scheme parameters for "${existing.name}"`,
+        beforeData: existing,
+        afterData: { ...existing, ...chitData },
+        status: 'Success',
+      });
+    }
+
     addToast('Chit Updated', 'Scheme details saved successfully', 'success');
   };
 
@@ -543,6 +582,17 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
       transactions: prev.transactions.filter((t) => t.chitId !== id),
       payouts: prev.payouts.filter((p) => p.chitId !== id),
     }));
+
+    logActivity({
+      action: 'DELETE',
+      module: 'Chits',
+      recordId: id,
+      recordName: existing.name,
+      description: `Deleted chit scheme "${existing.name}" (Value: ₹${existing.chitAmount.toLocaleString('en-IN')})`,
+      beforeData: existing,
+      status: 'Success',
+    });
+
     addToast('Chit Deleted', `Scheme ${existing.name} has been deleted`, 'warning');
   };
 
@@ -784,21 +834,36 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       return { ...prev, members: [newMember, ...prev.members], chits: chitsUpdated };
     });
+
+    logActivity({
+      action: 'CREATE',
+      module: 'Members',
+      recordId: newMember.id,
+      recordName: newMember.name,
+      description: `Registered new member "${newMember.name}" (${newMember.id}, Phone: ${newMember.phone})`,
+      afterData: newMember,
+      status: 'Success',
+    });
+
     addToast('Member Registered', `Member ${newMember.name} (${id}) added to Member Directory`, 'success');
     return newMember;
   };
 
   const updateMember = (id: string, memberData: Partial<Member>) => {
+    const existing = members.find((m) => m.id === id);
+    let updatedMemberObj: Member | null = null;
+
     setMembers((prev) =>
       prev.map((m) => {
         if (m.id === id) {
           const targetChit = memberData.chitId ? chits.find((c) => c.id === memberData.chitId) : null;
-          return {
+          updatedMemberObj = {
             ...m,
             ...memberData,
             chitName: targetChit ? targetChit.name : memberData.chitName || m.chitName,
             monthlyDue: targetChit ? targetChit.monthlyInstallment : memberData.monthlyDue || m.monthlyDue,
           };
+          return updatedMemberObj;
         }
         return m;
       })
@@ -826,6 +891,20 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
         : prev.transactions;
       return { ...prev, members: updatedMembers, transactions: updatedTxns };
     });
+
+    if (existing && updatedMemberObj) {
+      logActivity({
+        action: 'UPDATE',
+        module: 'Members',
+        recordId: id,
+        recordName: existing.name,
+        description: `Updated member profile details for "${existing.name}" (${id})`,
+        beforeData: existing,
+        afterData: updatedMemberObj,
+        status: 'Success',
+      });
+    }
+
     addToast('Member Updated', `Profile details for member ${id} saved`, 'success');
   };
 
@@ -843,6 +922,18 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...prev,
         members: prev.members.map((m) => (m.id === id ? { ...m, status: 'Inactive', isAssigned: false } : m)),
       }));
+
+      logActivity({
+        action: 'DELETE',
+        module: 'Members',
+        recordId: id,
+        recordName: existing.name,
+        description: `Deactivated member "${existing.name}" (${id}) to preserve transaction ledger history`,
+        beforeData: existing,
+        afterData: { ...existing, status: 'Inactive', isAssigned: false },
+        status: 'Success',
+      });
+
       addToast('Member Deactivated', `Member ${existing.name} (${id}) deactivated safely to preserve financial history.`, 'warning');
     } else {
       setMembers((prev) => prev.filter((m) => m.id !== id));
@@ -886,6 +977,17 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return changed ? { ...c, monthMemberAssignments: map } : c;
         }),
       }));
+
+      logActivity({
+        action: 'DELETE',
+        module: 'Members',
+        recordId: id,
+        recordName: existing.name,
+        description: `Deleted member record for "${existing.name}" (${id})`,
+        beforeData: existing,
+        status: 'Success',
+      });
+
       addToast('Member Deleted', `Member ${existing.name} (${id}) deleted successfully.`, 'success');
     }
   };
@@ -1063,6 +1165,16 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ),
     }));
 
+    logActivity({
+      action: 'CREATE',
+      module: 'Payments',
+      recordId: newTxn.id,
+      recordName: `Receipt #${receiptNo}`,
+      description: `Recorded collection payment of ₹${params.amount.toLocaleString('en-IN')} (${params.paymentMode}) for member "${finalMemName}" in "${finalChitName}"`,
+      afterData: newTxn,
+      status: 'Success',
+    });
+
     addToast('Payment Recorded!', `Receipt #${receiptNo} created for ₹${params.amount.toLocaleString('en-IN')}`, 'success');
     setActiveReceiptModal(newTxn);
     return newTxn;
@@ -1104,6 +1216,18 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
             )
           : prev.chits,
     }));
+
+    logActivity({
+      action: 'UPDATE',
+      module: 'Payments',
+      recordId: id,
+      recordName: `Receipt #${existing.receiptNo || existing.id}`,
+      description: `Updated payment transaction details for receipt #${existing.receiptNo || existing.id} (Member: ${existing.memberName})`,
+      beforeData: existing,
+      afterData: { ...existing, ...data },
+      status: 'Success',
+    });
+
     addToast('Payment Updated', `Receipt #${existing.receiptNo || existing.id} details saved successfully`, 'success');
   };
 
@@ -1141,6 +1265,17 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
             )
           : prev.chits,
     }));
+
+    logActivity({
+      action: 'DELETE',
+      module: 'Payments',
+      recordId: id,
+      recordName: `Receipt #${existing.receiptNo || existing.id}`,
+      description: `Deleted payment transaction #${existing.receiptNo || existing.id} (Amount: ₹${existing.amount.toLocaleString('en-IN')})`,
+      beforeData: existing,
+      status: 'Success',
+    });
+
     addToast('Transaction Deleted', `Transaction #${existing.receiptNo || existing.id} has been removed.`, 'info');
   };
 
@@ -1228,11 +1363,22 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { ...prev, payouts: updatedPayouts, chits: updatedChits, transactions: updatedTxns };
     });
 
+    logActivity({
+      action: 'CREATE',
+      module: 'Payments',
+      recordId: newPayout.id,
+      recordName: `Month ${params.monthNumber} Payout`,
+      description: `Disbursed prize payout of ₹${params.amount.toLocaleString('en-IN')} to "${winnerName}" (${chitName}, Month ${params.monthNumber})`,
+      afterData: newPayout,
+      status: 'Success',
+    });
+
     addToast('Payout Recorded', `Month ${params.monthNumber} payout of ₹${params.amount.toLocaleString('en-IN')} to ${winnerName} saved.`, 'success');
     return newPayout;
   };
 
   const deletePayout = (chitId: string, monthNumber: number) => {
+    const existing = payouts.find((p) => p.chitId === chitId && p.monthNumber === monthNumber);
     setPayouts((prev) => prev.filter((p) => p.chitId !== chitId || p.monthNumber !== monthNumber));
     setChits((prev) =>
       prev.map((c) => {
@@ -1259,6 +1405,19 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }),
       transactions: prev.transactions.filter((t) => t.chitId !== chitId || t.monthNumber !== monthNumber || t.type !== 'Payout'),
     }));
+
+    if (existing) {
+      logActivity({
+        action: 'DELETE',
+        module: 'Payments',
+        recordId: existing.id,
+        recordName: `Month ${monthNumber} Payout`,
+        description: `Cancelled payout record for Month ${monthNumber} (Amount: ₹${existing.amount.toLocaleString('en-IN')})`,
+        beforeData: existing,
+        status: 'Success',
+      });
+    }
+
     addToast('Payout Removed', `Month ${monthNumber} payout record cleared.`, 'info');
   };
 

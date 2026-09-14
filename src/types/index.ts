@@ -239,4 +239,114 @@ export interface UserAccount {
   permissions: string[];
   createdAt: string;
   createdBy?: string;
+  updatedAt?: string;
+}
+
+export type AuditAction =
+  | 'CREATE'
+  | 'UPDATE'
+  | 'DELETE'
+  | 'LOGIN_SUCCESS'
+  | 'LOGIN_FAILED'
+  | 'LOGOUT'
+  | 'PASSWORD_CHANGED'
+  | 'PASSWORD_RESET'
+  | 'CANCEL'
+  | 'REVERSE'
+  | 'EXPORT'
+  | 'PRINT'
+  | 'VIEW'
+  | 'BACKUP_CREATED'
+  | 'BACKUP_FAILED'
+  | 'RESTORE_STARTED'
+  | 'RESTORE_COMPLETED'
+  | 'RESTORE_FAILED';
+
+export type AuditModule =
+  | 'Authentication'
+  | 'Members'
+  | 'Chits'
+  | 'Payments'
+  | 'Collections'
+  | 'Receipts'
+  | 'Expenses'
+  | 'Users'
+  | 'Staff'
+  | 'Reports'
+  | 'Settings'
+  | 'System Backup'
+  | 'Other';
+
+export type AuditStatus = 'Success' | 'Failed';
+
+export interface AuditFieldChange {
+  field: string;
+  label: string;
+  previousValue: any;
+  newValue: any;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  userId: string;
+  userName: string;
+  userRole: string;
+  action: AuditAction;
+  module: AuditModule;
+  recordId?: string;
+  recordName?: string;
+  description: string;
+  beforeData?: Record<string, any> | null;
+  afterData?: Record<string, any> | null;
+  changedFields?: AuditFieldChange[];
+  ipAddress: string;
+  userAgent: string;
+  status: AuditStatus;
+  failureReason?: string;
+  metadata?: Record<string, any>;
+  createdAt: string;
+}
+
+export interface BackupMetadata {
+  backup_version: string;
+  application_name: string;
+  application_version: string;
+  database_schema_version: string;
+  backup_type: string;
+  created_at: string;
+  created_by: string;
+  created_by_role: string;
+  records_count: {
+    members: number;
+    chits: number;
+    transactions: number;
+    payouts: number;
+    users: number;
+    audit_logs: number;
+  };
+}
+
+export interface BackupPackage {
+  metadata: BackupMetadata;
+  checksum: string;
+  data: {
+    appData: any;
+    users: any[];
+    roleDefaults?: any;
+    auditLogs: any[];
+  };
+}
+
+export interface BackupHistoryItem {
+  id: string;
+  fileName: string;
+  createdAt: string;
+  createdBy: string;
+  createdByRole: string;
+  backupType: string;
+  sizeBytes: number;
+  sizeFormatted: string;
+  status: 'Success' | 'Failed';
+  checksum?: string;
+  packageData?: BackupPackage;
 }

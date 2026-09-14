@@ -9,6 +9,7 @@ import {
   DEFAULT_ROLE_PERMISSIONS,
   ROOT_SUPERADMIN_ID,
 } from '../permissions';
+import { logActivity } from '@/shared/services/auditService';
 
 import { getAppData, saveAppData } from '@/shared/utils/storage';
 
@@ -252,11 +253,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (!matchedUser) {
+      logActivity({
+        userId: 'unknown',
+        userName: cleanInput || 'Unknown User',
+        userRole: 'Guest',
+        action: 'LOGIN_FAILED',
+        module: 'Authentication',
+        description: `Failed login attempt for username "${cleanInput}"`,
+        status: 'Failed',
+        failureReason: 'User not found',
+      });
       return { success: false, message: 'Invalid username/email or password.' };
     }
 
     // Check account status
     if (matchedUser.status === 'Disabled') {
+      logActivity({
+        userId: matchedUser.id,
+        userName: matchedUser.name,
+        userRole: matchedUser.role,
+        action: 'LOGIN_FAILED',
+        module: 'Authentication',
+        description: `Failed login attempt for disabled user "${matchedUser.name}" (${matchedUser.email})`,
+        status: 'Failed',
+        failureReason: 'Account Disabled',
+      });
       return {
         success: false,
         message: 'Your account is disabled. Please contact the Super Admin.',
@@ -265,6 +286,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Check password
     if (matchedUser.password !== password) {
+      logActivity({
+        userId: matchedUser.id,
+        userName: matchedUser.name,
+        userRole: matchedUser.role,
+        action: 'LOGIN_FAILED',
+        module: 'Authentication',
+        description: `Failed password verification for user "${matchedUser.name}"`,
+        status: 'Failed',
+        failureReason: 'Invalid Password',
+      });
       return { success: false, message: 'Invalid username/email or password.' };
     }
 
@@ -276,14 +307,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newSession));
     setSession(newSession);
+
+    logActivity({
+      userId: matchedUser.id,
+      userName: matchedUser.name,
+      userRole: matchedUser.role,
+      action: 'LOGIN_SUCCESS',
+      module: 'Authentication',
+      description: `User "${matchedUser.name}" (${matchedUser.role}) logged in successfully`,
+      status: 'Success',
+    });
+
     return { success: true, user: matchedUser };
   };
 
   const logout = useCallback(() => {
+    logActivity({
+      userId: currentUser?.id || session.userId || 'USR-SUPERADMIN',
+      userName: currentUser?.name || session.email || 'User',
+      userRole: currentUser?.role || 'Super Admin',
+      action: 'LOGOUT',
+      module: 'Authentication',
+      description: `User "${currentUser?.name || session.email || 'User'}" logged out of the system`,
+      status: 'Success',
+    });
+
     // Strictly only remove authentication session. Never delete business or user data!
     localStorage.removeItem(AUTH_STORAGE_KEY);
     setSession({ isAuthenticated: false, userId: null, email: null });
-  }, []);
+  }, [currentUser, session]);
 
   // ---------------------------------------------------------------------------
   // RBAC PERMISSION HELPERS
@@ -405,6 +457,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const updated = [...users, newUser];
     setUsers(updated);
     saveStoredUsers(updated);
+
+    logActivity({
+      userId: currentUser?.id,
+      userName: currentUser?.name,
+      userRole: currentUser?.role,
+      action: 'CREATE',
+      module: 'Users',
+      recordId: newUser.id,
+      recordName: newUser.name,
+      description: `Created new ${newUser.role} user account "${newUser.name}" (${newUser.email})`,
+      afterData: newUser,
+      status: 'Success',
+    });
+
     return { success: true, user: newUser };
   };
 
@@ -439,6 +505,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
+    let updatedUserObj: UserAccount | null = null;
     const updated = users.map((u) => {
       if (u.id !== id) return u;
       const isTargetSuperAdmin = u.id === ROOT_SUPERADMIN_ID || u.role === 'Super Admin';
@@ -446,7 +513,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ? [...ALL_PERMISSIONS]
         : (data.permissions !== undefined ? data.permissions : u.permissions);
 
-      return {
+      updatedUserObj = {
         ...u,
         name: data.name !== undefined ? data.name.trim() : u.name,
         email: data.email !== undefined ? data.email.trim() : u.email,
@@ -456,10 +523,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         permissions: updatedPermissions,
         updatedAt: new Date().toISOString(),
       };
+      return updatedUserObj;
     });
 
     setUsers(updated);
     saveStoredUsers(updated);
+
+    if (updatedUserObj) {
+      logActivity({
+        userId: currentUser?.id,
+        userName: currentUser?.name,
+        userRole: currentUser?.role,
+        action: 'UPDATE',
+        module: 'Users',
+        recordId: targetUser.id,
+        recordName: targetUser.name,
+        description: `Updated user account details for "${targetUser.name}"`,
+        beforeData: targetUser,
+        afterData: updatedUserObj,
+        status: 'Success',
+      });
+    }
+
     return { success: true };
   };
 
@@ -488,6 +573,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setUsers(updated);
     saveStoredUsers(updated);
+
+    logActivity({
+      userId: currentUser?.id,
+      userName: currentUser?.name,
+      userRole: currentUser?.role,
+      action: 'UPDATE',
+      module: 'Users',
+      recordId: targetUser.id,
+      recordName: targetUser.name,
+      description: `Updated permissions for user "${targetUser.name}" (${permissions.length} permissions assigned)`,
+      beforeData: { permissions: targetUser.permissions },
+      afterData: { permissions },
+      status: 'Success',
+    });
+
     return { success: true };
   };
 
@@ -516,6 +616,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setUsers(updated);
     saveStoredUsers(updated);
+
+    logActivity({
+      userId: currentUser?.id,
+      userName: currentUser?.name,
+      userRole: currentUser?.role,
+      action: 'PASSWORD_RESET',
+      module: 'Users',
+      recordId: targetUser.id,
+      recordName: targetUser.name,
+      description: `Reset password for user "${targetUser.name}"`,
+      status: 'Success',
+    });
+
     return { success: true };
   };
 
@@ -546,6 +659,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setUsers(updated);
     saveStoredUsers(updated);
+
+    logActivity({
+      userId: currentUser?.id,
+      userName: currentUser?.name,
+      userRole: currentUser?.role,
+      action: 'UPDATE',
+      module: 'Users',
+      recordId: targetUser.id,
+      recordName: targetUser.name,
+      description: `Changed account status for "${targetUser.name}" to ${newStatus}`,
+      beforeData: { status: targetUser.status },
+      afterData: { status: newStatus },
+      status: 'Success',
+    });
+
     return { success: true };
   };
 
@@ -567,6 +695,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const updated = users.filter((u) => u.id !== id);
     setUsers(updated);
     saveStoredUsers(updated);
+
+    logActivity({
+      userId: currentUser?.id,
+      userName: currentUser?.name,
+      userRole: currentUser?.role,
+      action: 'DELETE',
+      module: 'Users',
+      recordId: targetUser.id,
+      recordName: targetUser.name,
+      description: `Deleted user account "${targetUser.name}" (${targetUser.email})`,
+      beforeData: targetUser,
+      status: 'Success',
+    });
+
     return { success: true };
   };
 
