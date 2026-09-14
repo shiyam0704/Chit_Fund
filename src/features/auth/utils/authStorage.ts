@@ -72,19 +72,42 @@ export function initializeAuthStorage(): UserAccount[] {
         console.error('[AuthStorage] Failed to write chitfund_users to LocalStorage:', err);
       }
     } else {
-      // Users exist: guarantee at least one active Super Admin without overwriting existing accounts
-      const hasSuperAdmin = users.some(
+      // Users exist: guarantee default Super Admin account (chitfundadmin@gmail.com) exists and is Active
+      const defaultEmailClean = ADMIN_CREDENTIALS.email.trim().toLowerCase();
+      const existingAdminIndex = users.findIndex(
         (u) =>
-          (u.role === 'Super Admin' ||
-            u.id === ROOT_SUPERADMIN_ID ||
-            u.email.toLowerCase() === ADMIN_CREDENTIALS.email.toLowerCase()) &&
-          u.status !== 'Disabled'
+          u.email.trim().toLowerCase() === defaultEmailClean ||
+          u.id === ROOT_SUPERADMIN_ID ||
+          u.email.trim().toLowerCase() === 'chitfundadmin@123'
       );
 
-      if (!hasSuperAdmin) {
+      let modified = false;
+      if (existingAdminIndex !== -1) {
+        const existing = users[existingAdminIndex];
+        // Ensure email is chitfundadmin@gmail.com, status is Active, role is Super Admin
+        if (
+          existing.email.trim().toLowerCase() !== defaultEmailClean ||
+          existing.status !== 'Active' ||
+          existing.role !== 'Super Admin'
+        ) {
+          users[existingAdminIndex] = {
+            ...existing,
+            id: ROOT_SUPERADMIN_ID,
+            email: ADMIN_CREDENTIALS.email,
+            role: 'Super Admin',
+            status: 'Active',
+            password: existing.password || ADMIN_CREDENTIALS.password,
+          };
+          modified = true;
+        }
+      } else {
+        // Required default Super Admin does not exist: prepend without modifying any existing users
         const defaultAdmin = createDefaultSuperAdminUser();
-        // Prepend Super Admin while retaining all custom user accounts
-        users = [defaultAdmin, ...users.filter((u) => u.id !== ROOT_SUPERADMIN_ID)];
+        users = [defaultAdmin, ...users];
+        modified = true;
+      }
+
+      if (modified) {
         try {
           localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
         } catch (err) {

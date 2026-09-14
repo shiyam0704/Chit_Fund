@@ -151,11 +151,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Determine if input matches any known Super Admin aliases or credentials
     const isSuperAdminAlias =
+      cleanInput === 'chitfundadmin@gmail.com' ||
       cleanInput === ADMIN_CREDENTIALS.email.trim().toLowerCase() ||
+      cleanInput === 'chitfundadmin@123' ||
       cleanInput === 'admin@chitfund.com' ||
       cleanInput === 'admin' ||
       cleanInput === 'chitfundadmin' ||
-      cleanInput === 'chitfundadmin@123' ||
       cleanInput === 'super admin' ||
       cleanInput === 'superadmin' ||
       cleanInput === 'adminchit@123';
@@ -165,7 +166,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       (u) => (u.email || '').trim().toLowerCase() === cleanInput || (u.name || '').trim().toLowerCase() === cleanInput
     );
 
-    // Fallback: match Super Admin aliases
+    // Fallback: match Super Admin aliases or direct default admin login
     if (!matchedUser && isSuperAdminAlias) {
       matchedUser =
         currentUsersList.find((u) => u.role === 'Super Admin' || u.id === ROOT_SUPERADMIN_ID) ||
@@ -230,9 +231,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       userId: matchedUser.id,
       email: matchedUser.email,
     };
+
+    // Ensure matchedUser is stored locally even if cold-started with zero storage
+    const finalUsersList = currentUsersList.some((u) => u.id === matchedUser.id || u.email.toLowerCase() === matchedUser.email.toLowerCase())
+      ? currentUsersList
+      : [matchedUser, ...currentUsersList];
+
+    saveStoredUsers(finalUsersList);
     saveStoredAuthSession(newSession);
     setSession(newSession);
-    setUsers(currentUsersList);
+    setUsers(finalUsersList);
 
     logActivity({
       userId: matchedUser.id,

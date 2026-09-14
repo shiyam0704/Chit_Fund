@@ -218,7 +218,7 @@ npm run dev
 ```
 
 ### Default Credentials
-- **Username / Email**: `chitfundadmin@123`
+- **Username / Email**: `chitfundadmin@gmail.com`
 - **Password**: `adminchit@123`
 - **Role**: Super Admin (Full Access)
 

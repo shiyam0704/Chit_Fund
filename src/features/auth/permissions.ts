@@ -88,12 +88,15 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   'Custom Role': [PERMISSIONS.DASHBOARD_VIEW],
 };
 
+export const DEFAULT_ADMIN_EMAIL = 'chitfundadmin@gmail.com';
+export const DEFAULT_ADMIN_PASSWORD = 'adminchit@123';
+
 const envEmail = ((import.meta as any).env?.VITE_ADMIN_EMAIL as string | undefined)?.trim();
 const envPassword = ((import.meta as any).env?.VITE_ADMIN_PASSWORD as string | undefined)?.trim();
 
 export const ADMIN_CREDENTIALS = {
-  email: envEmail || 'chitfundadmin@123',
-  password: envPassword || 'adminchit@123',
+  email: envEmail || DEFAULT_ADMIN_EMAIL,
+  password: envPassword || DEFAULT_ADMIN_PASSWORD,
 };
 
 export const createDefaultSuperAdminUser = (): UserAccount => ({
