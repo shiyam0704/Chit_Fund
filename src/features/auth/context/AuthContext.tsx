@@ -8,43 +8,17 @@ import {
   ALL_PERMISSIONS,
   DEFAULT_ROLE_PERMISSIONS,
   ROOT_SUPERADMIN_ID,
+  ADMIN_CREDENTIALS,
+  createDefaultSuperAdminUser,
 } from '../permissions';
 import { logActivity } from '@/shared/services/auditService';
-
 import { getAppData, saveAppData } from '@/shared/utils/storage';
+import { initializeLocalApplication } from '@/shared/utils/initialization';
+
+export { ADMIN_CREDENTIALS, createDefaultSuperAdminUser };
 
 export const AUTH_STORAGE_KEY = 'chitfund_auth';
 export const USERS_STORAGE_KEY = 'chitfund_users';
-
-/**
- * SECURITY & ARCHITECTURE NOTICE:
- * This application is a frontend-only React + Vite application with LocalStorage persistence.
- * This role-based access control (RBAC) layer enforces UI visibility, route guards, and action safeguards
- * within the frontend user experience.
- *
- * NOTE: Credentials and permissions stored in LocalStorage or client-side JavaScript bundles
- * are not secure against users with browser DevTools / local storage inspection capabilities.
- * For production environments requiring tamper-proof security, integrate this layer with a real
- * authenticated backend API service (e.g. Node.js, NestJS, Supabase, PostgreSQL).
- */
-const envEmail = ((import.meta as any).env?.VITE_ADMIN_EMAIL as string | undefined)?.trim();
-const envPassword = ((import.meta as any).env?.VITE_ADMIN_PASSWORD as string | undefined)?.trim();
-
-export const ADMIN_CREDENTIALS = {
-  email: envEmail || 'chitfundadmin@123',
-  password: envPassword || 'adminchit@123',
-};
-
-export const createDefaultSuperAdminUser = (): UserAccount => ({
-  id: ROOT_SUPERADMIN_ID,
-  name: 'Super Admin',
-  email: ADMIN_CREDENTIALS.email,
-  password: ADMIN_CREDENTIALS.password,
-  role: 'Super Admin',
-  status: 'Active',
-  permissions: [...ALL_PERMISSIONS],
-  createdAt: '2026-01-01T00:00:00.000Z',
-});
 
 export interface AuthSession {
   isAuthenticated: boolean;
@@ -104,6 +78,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
  */
 export const getStoredUsers = (): UserAccount[] => {
   try {
+    initializeLocalApplication();
     const appData = getAppData();
     if (Array.isArray(appData.users) && appData.users.length > 0) {
       const hasSuperAdmin = appData.users.some(
@@ -116,6 +91,9 @@ export const getStoredUsers = (): UserAccount[] => {
         const updated = [createDefaultSuperAdminUser(), ...appData.users];
         appData.users = updated;
         saveAppData(appData);
+        try {
+          localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(updated));
+        } catch {}
         return updated;
       }
       return appData.users;
@@ -145,6 +123,9 @@ export const getStoredUsers = (): UserAccount[] => {
     const initialUsers = [createDefaultSuperAdminUser()];
     appData.users = initialUsers;
     saveAppData(appData);
+    try {
+      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(initialUsers));
+    } catch {}
     return initialUsers;
   } catch (err) {
     console.error('[Auth] Failed to load users from app data:', err);
@@ -186,6 +167,10 @@ export const getStoredAuthSession = (): AuthSession => {
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  useEffect(() => {
+    initializeLocalApplication();
+  }, []);
+
   const [users, setUsers] = useState<UserAccount[]>(getStoredUsers);
   const [session, setSession] = useState<AuthSession>(getStoredAuthSession);
 
@@ -236,20 +221,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Please enter both username/email and password.' };
     }
 
+    // Ensure local application data is initialized
+    initializeLocalApplication();
+
     // Refresh users from storage to ensure latest data
     const currentUsersList = getStoredUsers();
+
+    // Determine if input matches any known Super Admin aliases or credentials
+    const isSuperAdminAlias =
+      cleanInput === ADMIN_CREDENTIALS.email.toLowerCase() ||
+      cleanInput === 'admin@chitfund.com' ||
+      cleanInput === 'admin' ||
+      cleanInput === 'chitfundadmin' ||
+      cleanInput === 'chitfundadmin@123' ||
+      cleanInput === 'super admin' ||
+      cleanInput === 'superadmin' ||
+      cleanInput === 'adminchit@123';
 
     // Look for matching user by email or name
     let matchedUser = currentUsersList.find(
       (u) => u.email.toLowerCase() === cleanInput || u.name.toLowerCase() === cleanInput
     );
 
-    // Fallback: check against hardcoded root credentials if user list lacks root record
-    if (
-      !matchedUser &&
-      (cleanInput === ADMIN_CREDENTIALS.email.toLowerCase() || cleanInput === 'super admin' || cleanInput === 'admin')
-    ) {
-      matchedUser = currentUsersList.find((u) => u.role === 'Super Admin') || createDefaultSuperAdminUser();
+    // Fallback: match Super Admin aliases
+    if (!matchedUser && isSuperAdminAlias) {
+      matchedUser =
+        currentUsersList.find((u) => u.role === 'Super Admin' || u.id === ROOT_SUPERADMIN_ID) ||
+        createDefaultSuperAdminUser();
     }
 
     if (!matchedUser) {
@@ -284,8 +282,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     }
 
-    // Check password
-    if (matchedUser.password !== password) {
+    // Check password: match against user's password OR default admin credential if Super Admin
+    const isSuperAdmin = matchedUser.role === 'Super Admin' || matchedUser.id === ROOT_SUPERADMIN_ID;
+    const isPasswordCorrect =
+      matchedUser.password === password ||
+      (isSuperAdmin && password === ADMIN_CREDENTIALS.password);
+
+    if (!isPasswordCorrect) {
       logActivity({
         userId: matchedUser.id,
         userName: matchedUser.name,
@@ -305,8 +308,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       userId: matchedUser.id,
       email: matchedUser.email,
     };
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newSession));
+    try {
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newSession));
+    } catch {}
     setSession(newSession);
+    setUsers(currentUsersList);
 
     logActivity({
       userId: matchedUser.id,

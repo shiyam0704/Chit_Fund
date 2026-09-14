@@ -1,4 +1,5 @@
 import { CompanySettings, ChitScheme, Member, PaymentTransaction, ChitPayout, UserAccount } from '@/types';
+import { createDefaultSuperAdminUser, DEFAULT_ROLE_PERMISSIONS } from '@/features/auth/permissions';
 
 export const APP_DATA_KEY = 'chitfund_app_data';
 export const AUTH_STORAGE_KEY = 'chitfund_auth';
@@ -42,8 +43,8 @@ export const getDefaultAppData = (): AppData => ({
   transactions: [],
   payouts: [],
   manualWinnerAssignments: {},
-  users: [],
-  roleDefaults: {},
+  users: [createDefaultSuperAdminUser()],
+  roleDefaults: DEFAULT_ROLE_PERMISSIONS,
 });
 
 export const getAppData = (): AppData => {
@@ -52,9 +53,16 @@ export const getAppData = (): AppData => {
     if (!raw) {
       const initial = getDefaultAppData();
       saveAppData(initial);
+      try {
+        localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(initial.users));
+      } catch {}
       return initial;
     }
     const data = JSON.parse(raw);
+    const resolvedUsers: UserAccount[] = Array.isArray(data.users) && data.users.length > 0
+      ? data.users
+      : [createDefaultSuperAdminUser()];
+
     return {
       version: 2,
       theme: data.theme || 'dark',
@@ -64,8 +72,8 @@ export const getAppData = (): AppData => {
       transactions: Array.isArray(data.transactions) ? data.transactions : [],
       payouts: Array.isArray(data.payouts) ? data.payouts : [],
       manualWinnerAssignments: data.manualWinnerAssignments || {},
-      users: Array.isArray(data.users) ? data.users : undefined,
-      roleDefaults: data.roleDefaults || undefined,
+      users: resolvedUsers,
+      roleDefaults: data.roleDefaults || DEFAULT_ROLE_PERMISSIONS,
     };
   } catch (err) {
     console.error('[Storage] Error reading application data from LocalStorage:', err);

@@ -87,3 +87,22 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   ],
   'Custom Role': [PERMISSIONS.DASHBOARD_VIEW],
 };
+
+const envEmail = ((import.meta as any).env?.VITE_ADMIN_EMAIL as string | undefined)?.trim();
+const envPassword = ((import.meta as any).env?.VITE_ADMIN_PASSWORD as string | undefined)?.trim();
+
+export const ADMIN_CREDENTIALS = {
+  email: envEmail || 'chitfundadmin@123',
+  password: envPassword || 'adminchit@123',
+};
+
+export const createDefaultSuperAdminUser = (): UserAccount => ({
+  id: ROOT_SUPERADMIN_ID,
+  name: 'Super Admin',
+  email: ADMIN_CREDENTIALS.email,
+  password: ADMIN_CREDENTIALS.password,
+  role: 'Super Admin',
+  status: 'Active',
+  permissions: [...ALL_PERMISSIONS],
+  createdAt: '2026-01-01T00:00:00.000Z',
+});
