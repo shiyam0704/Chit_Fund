@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { AuditLogEntry } from '@/types';
 import {
   getAuditLogs,
+  deleteAuditLog,
+  clearAllAuditLogs,
   exportAuditLogsToCSV,
   exportAuditLogsToPDF,
 } from '@/shared/services/auditService';
@@ -19,11 +21,12 @@ import {
   Eye,
   ShieldAlert,
   Inbox,
+  Trash2,
 } from 'lucide-react';
 
 export const AuditTrail: React.FC = () => {
   const { hasPermission, isSuperAdmin } = useAuth();
-  const { companySettings } = useChit();
+  const { companySettings, addToast } = useChit();
 
   const canView = isSuperAdmin() || hasPermission(PERMISSIONS.AUDIT_TRAIL_VIEW);
   const canExport = isSuperAdmin() || hasPermission(PERMISSIONS.AUDIT_TRAIL_EXPORT);
@@ -206,6 +209,34 @@ export const AuditTrail: React.FC = () => {
     window.print();
   };
 
+  // Delete handlers
+  const handleDeleteSingleLog = (id: string) => {
+    if (window.confirm('Are you sure you want to delete this audit log entry?')) {
+      const ok = deleteAuditLog(id);
+      if (ok) {
+        loadLogs();
+        if (selectedLog?.id === id) {
+          setSelectedLog(null);
+        }
+        addToast('Log Deleted', 'Audit log record deleted successfully.', 'info');
+      }
+    }
+  };
+
+  const handleClearAllLogs = () => {
+    if (logs.length === 0) return;
+    if (
+      window.confirm(
+        `Are you sure you want to permanently delete all ${logs.length} audit trail records? This action cannot be undone.`
+      )
+    ) {
+      clearAllAuditLogs();
+      loadLogs();
+      setSelectedLog(null);
+      addToast('Audit Logs Cleared', 'All audit trail records have been cleared.', 'info');
+    }
+  };
+
   const getActionBadgeClass = (action: string) => {
     if (action === 'CREATE') return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
     if (action === 'UPDATE') return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
@@ -281,6 +312,17 @@ export const AuditTrail: React.FC = () => {
               <span>Print</span>
             </button>
           )}
+
+          {/* Clear All Logs Button */}
+          <button
+            onClick={handleClearAllLogs}
+            disabled={logs.length === 0}
+            title="Delete all audit records"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-rose-600/10 hover:bg-rose-600/20 border border-rose-500/20 text-xs font-semibold text-rose-400 hover:text-rose-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-sm"
+          >
+            <Trash2 className="w-4 h-4 text-rose-400" />
+            <span>Clear All</span>
+          </button>
         </div>
       </div>
 
@@ -309,7 +351,7 @@ export const AuditTrail: React.FC = () => {
                 <th className="py-3 px-4">RECORD</th>
                 <th className="py-3 px-4">DESCRIPTION</th>
                 <th className="py-3 px-4 text-center">STATUS</th>
-                <th className="py-3 px-4 text-center">VIEW</th>
+                <th className="py-3 px-4 text-center">ACTIONS</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#1F293D]/60 text-slate-200">
@@ -389,15 +431,25 @@ export const AuditTrail: React.FC = () => {
                         </span>
                       </td>
 
-                      {/* VIEW BUTTON */}
+                      {/* ACTIONS: VIEW & DELETE */}
                       <td className="py-3 px-4 text-center whitespace-nowrap">
-                        <button
-                          onClick={() => setSelectedLog(log)}
-                          className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-blue-600/10 hover:bg-blue-600/20 border border-blue-500/20 text-blue-400 hover:text-blue-300 font-medium text-xs transition-colors cursor-pointer"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>View</span>
-                        </button>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => setSelectedLog(log)}
+                            title="View log details"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-600/10 hover:bg-blue-600/20 border border-blue-500/20 text-blue-400 hover:text-blue-300 font-medium text-xs transition-colors cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>View</span>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSingleLog(log.id)}
+                            title="Delete this audit record"
+                            className="inline-flex items-center justify-center p-1.5 rounded-md bg-rose-600/10 hover:bg-rose-600/20 border border-rose-500/20 text-rose-400 hover:text-rose-300 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -470,7 +522,11 @@ export const AuditTrail: React.FC = () => {
 
       {/* Details Inspection Modal */}
       {selectedLog && (
-        <AuditDetailModal log={selectedLog} onClose={() => setSelectedLog(null)} />
+        <AuditDetailModal
+          log={selectedLog}
+          onClose={() => setSelectedLog(null)}
+          onDelete={handleDeleteSingleLog}
+        />
       )}
     </div>
   );

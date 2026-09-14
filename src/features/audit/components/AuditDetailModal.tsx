@@ -20,9 +20,10 @@ import {
 interface AuditDetailModalProps {
   log: AuditLogEntry | null;
   onClose: () => void;
+  onDelete?: (id: string) => void;
 }
 
-export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({ log, onClose }) => {
+export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({ log, onClose, onDelete }) => {
   if (!log) return null;
 
   const getActionBadgeClass = (action: string) => {
@@ -322,14 +323,31 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({ log, onClose
         <div className="px-6 py-3.5 border-t border-[#1F293D] bg-[#0D121F]/90 flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs text-slate-400">
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            <span>Immutable & Cryptographically Sealed System Log</span>
+            <span>Audit Trail Record</span>
           </div>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-[#1F293D] hover:bg-[#2D3A54] text-slate-200 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2">
+            {onDelete && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm('Are you sure you want to delete this audit record?')) {
+                    onDelete(log.id);
+                    onClose();
+                  }
+                }}
+                className="px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-300 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete</span>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-[#1F293D] hover:bg-[#2D3A54] text-slate-200 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>

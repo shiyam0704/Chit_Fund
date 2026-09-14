@@ -231,6 +231,27 @@ export function clearAllAuditLogs(): void {
 }
 
 /**
+ * Deletes a single audit log entry by ID.
+ */
+export function deleteAuditLog(id: string): boolean {
+  try {
+    const raw = localStorage.getItem(AUDIT_STORAGE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return false;
+    const filtered = parsed.filter((item: AuditLogEntry) => item.id !== id);
+    localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(filtered));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('chitfund_audit_updated', { detail: filtered.length }));
+    }
+    return true;
+  } catch (err) {
+    console.error('[AuditService] Failed to delete audit log:', err);
+    return false;
+  }
+}
+
+/**
  * Save logs to storage (append-only)
  */
 function saveAuditLogs(logs: AuditLogEntry[]): void {
