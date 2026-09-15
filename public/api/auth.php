@@ -194,7 +194,7 @@ if ($action === 'register_activation') {
     $companyId = $input['companyId'] ?? '';
     $credential = $input['credential'] ?? null;
     if ($code && $credential) {
-        $stmt = $pdo->prepare("INSERT OR REPLACE INTO activations (code, user_id, company_id, credential_json) VALUES (:c, :u, :comp, :cred)");
+        $stmt = $pdo->prepare("REPLACE INTO activations (code, user_id, company_id, credential_json) VALUES (:c, :u, :comp, :cred)");
         $stmt->execute([
             'c' => $code,
             'u' => $userId,

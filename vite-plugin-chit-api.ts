@@ -149,7 +149,7 @@ export function chitApiDevPlugin(): Plugin {
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Auth-Token');
 
         if (req.method === 'OPTIONS') {
           res.statusCode = 200;
@@ -159,8 +159,8 @@ export function chitApiDevPlugin(): Plugin {
         const parsedUrl = new URL(urlStr, 'http://localhost:5173');
         const pathname = parsedUrl.pathname;
         const action = parsedUrl.searchParams.get('action') || '';
-        const authHeader = req.headers['authorization'] || '';
-        const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+        const rawAuth = (req.headers['authorization'] as string) || (req.headers['x-auth-token'] as string) || '';
+        const token = rawAuth.replace(/^Bearer\s+/i, '').trim();
 
         const db = loadDb();
 
@@ -172,6 +172,12 @@ export function chitApiDevPlugin(): Plugin {
         const sendError = (msg: string, code = 400) => {
           res.statusCode = code;
           res.end(JSON.stringify({ error: true, message: msg }));
+        };
+
+        const hasPerm = (sess: any, perm: string): boolean => {
+          if (sess.role === 'Super Admin') return true;
+          const perms = sess.permissions || [];
+          return perms.includes(perm);
         };
 
         // --- AUTH ---
@@ -312,9 +318,17 @@ export function chitApiDevPlugin(): Plugin {
         if (pathname.endsWith('chits.php')) {
           const body = await readBody(req);
           if (action === 'create') {
+            if (!hasPerm(session, 'CHITS_CREATE')) return sendError('Forbidden: Insufficient permissions for CHITS_CREATE', 403);
+            const chitId = body.id || 'CHIT-' + Math.random().toString(36).substring(2, 9).toUpperCase();
+            const existingIdx = db.chits.findIndex((c) => c.id === chitId);
+            if (existingIdx !== -1) {
+              db.chits[existingIdx] = { ...db.chits[existingIdx], ...body, companyId: sessionCompanyId };
+              saveDb(db);
+              return sendJson({ success: true, id: chitId });
+            }
             const newChit = {
               ...body,
-              id: body.id || 'CHIT-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+              id: chitId,
               companyId: sessionCompanyId,
               createdAt: new Date().toISOString(),
             };
@@ -323,6 +337,7 @@ export function chitApiDevPlugin(): Plugin {
             return sendJson({ success: true, id: newChit.id });
           }
           if (action === 'update') {
+            if (!hasPerm(session, 'CHITS_EDIT')) return sendError('Forbidden: Insufficient permissions for CHITS_EDIT', 403);
             const idx = db.chits.findIndex((c) => c.id === body.id && c.companyId === sessionCompanyId);
             if (idx === -1) return sendError('Chit not found', 404);
             db.chits[idx] = { ...db.chits[idx], ...body, companyId: sessionCompanyId };
@@ -330,6 +345,7 @@ export function chitApiDevPlugin(): Plugin {
             return sendJson({ success: true, id: body.id });
           }
           if (action === 'delete') {
+            if (!hasPerm(session, 'CHITS_DELETE')) return sendError('Forbidden: Insufficient permissions for CHITS_DELETE', 403);
             const chitId = body.id || parsedUrl.searchParams.get('id');
             db.chits = db.chits.filter((c) => !(c.id === chitId && c.companyId === sessionCompanyId));
             saveDb(db);
@@ -341,9 +357,17 @@ export function chitApiDevPlugin(): Plugin {
         if (pathname.endsWith('members.php')) {
           const body = await readBody(req);
           if (action === 'create') {
+            if (!hasPerm(session, 'MEMBERS_CREATE')) return sendError('Forbidden: Insufficient permissions for MEMBERS_CREATE', 403);
+            const memId = body.id || 'MEM-' + Math.random().toString(36).substring(2, 9).toUpperCase();
+            const existingIdx = db.members.findIndex((m) => m.id === memId);
+            if (existingIdx !== -1) {
+              db.members[existingIdx] = { ...db.members[existingIdx], ...body, companyId: sessionCompanyId };
+              saveDb(db);
+              return sendJson({ success: true, id: memId });
+            }
             const newMember = {
               ...body,
-              id: body.id || 'MEM-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+              id: memId,
               companyId: sessionCompanyId,
               createdAt: new Date().toISOString(),
             };
@@ -352,6 +376,7 @@ export function chitApiDevPlugin(): Plugin {
             return sendJson({ success: true, id: newMember.id });
           }
           if (action === 'update') {
+            if (!hasPerm(session, 'MEMBERS_EDIT')) return sendError('Forbidden: Insufficient permissions for MEMBERS_EDIT', 403);
             const idx = db.members.findIndex((m) => m.id === body.id && m.companyId === sessionCompanyId);
             if (idx === -1) return sendError('Member not found', 404);
             db.members[idx] = { ...db.members[idx], ...body, companyId: sessionCompanyId };
@@ -359,6 +384,7 @@ export function chitApiDevPlugin(): Plugin {
             return sendJson({ success: true, id: body.id });
           }
           if (action === 'delete') {
+            if (!hasPerm(session, 'MEMBERS_DELETE')) return sendError('Forbidden: Insufficient permissions for MEMBERS_DELETE', 403);
             const memId = body.id || parsedUrl.searchParams.get('id');
             db.members = db.members.filter((m) => !(m.id === memId && m.companyId === sessionCompanyId));
             saveDb(db);
@@ -370,9 +396,15 @@ export function chitApiDevPlugin(): Plugin {
         if (pathname.endsWith('transactions.php')) {
           const body = await readBody(req);
           if (action === 'create') {
+            if (!hasPerm(session, 'PAYMENTS_CREATE')) return sendError('Forbidden: Insufficient permissions for PAYMENTS_CREATE', 403);
+            const txnId = body.id || 'TXN-' + Math.random().toString(36).substring(2, 9).toUpperCase();
+            const existingIdx = db.transactions.findIndex((t) => t.id === txnId);
+            if (existingIdx !== -1) {
+              return sendJson({ success: true, id: txnId });
+            }
             const newTxn = {
               ...body,
-              id: body.id || 'TXN-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+              id: txnId,
               companyId: sessionCompanyId,
               createdBy: session.userId,
               createdAt: new Date().toISOString(),
@@ -391,6 +423,7 @@ export function chitApiDevPlugin(): Plugin {
             return sendJson({ success: true, id: newTxn.id });
           }
           if (action === 'update') {
+            if (!hasPerm(session, 'PAYMENTS_EDIT')) return sendError('Forbidden: Insufficient permissions for PAYMENTS_EDIT', 403);
             const idx = db.transactions.findIndex((t) => t.id === body.id && t.companyId === sessionCompanyId);
             if (idx === -1) return sendError('Transaction not found', 404);
             db.transactions[idx] = { ...db.transactions[idx], ...body, companyId: sessionCompanyId };
@@ -398,6 +431,7 @@ export function chitApiDevPlugin(): Plugin {
             return sendJson({ success: true, id: body.id });
           }
           if (action === 'delete') {
+            if (!hasPerm(session, 'PAYMENTS_DELETE')) return sendError('Forbidden: Insufficient permissions for PAYMENTS_DELETE', 403);
             const txnId = body.id || parsedUrl.searchParams.get('id');
             db.transactions = db.transactions.filter((t) => !(t.id === txnId && t.companyId === sessionCompanyId));
             saveDb(db);
@@ -409,6 +443,7 @@ export function chitApiDevPlugin(): Plugin {
         if (pathname.endsWith('payouts.php')) {
           const body = await readBody(req);
           if (action === 'create') {
+            if (!hasPerm(session, 'PAYMENTS_CREATE')) return sendError('Forbidden: Insufficient permissions for PAYMENTS_CREATE', 403);
             const newPayout = {
               ...body,
               id: body.id || 'PAY-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
@@ -421,6 +456,7 @@ export function chitApiDevPlugin(): Plugin {
             return sendJson({ success: true, id: newPayout.id });
           }
           if (action === 'delete') {
+            if (!hasPerm(session, 'PAYMENTS_DELETE')) return sendError('Forbidden: Insufficient permissions for PAYMENTS_DELETE', 403);
             const chitId = body.chitId || parsedUrl.searchParams.get('chitId');
             const monthNumber = Number(body.monthNumber || parsedUrl.searchParams.get('monthNumber'));
             db.payouts = db.payouts.filter((p) => !(p.chitId === chitId && p.monthNumber === monthNumber && p.companyId === sessionCompanyId));
