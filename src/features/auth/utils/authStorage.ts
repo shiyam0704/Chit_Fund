@@ -4,6 +4,7 @@ import {
   ADMIN_CREDENTIALS,
   createDefaultSuperAdminUser,
 } from '../permissions';
+import { getStoredCompanies, DEFAULT_COMPANY_ID, DEFAULT_COMPANY_NAME } from './companyStorage';
 
 export const USERS_STORAGE_KEY = 'chitfund_users';
 export const AUTH_STORAGE_KEY = 'chitfund_auth';
@@ -13,6 +14,9 @@ export interface AuthSession {
   isAuthenticated: boolean;
   userId: string | null;
   email: string | null;
+  companyId: string | null;
+  companyName: string | null;
+  role: string | null;
 }
 
 /**
@@ -26,12 +30,16 @@ export interface AuthSession {
  *    - saves directly to 'chitfund_users'
  * 3. If valid users exist:
  *    - PRESERVES all existing accounts and passwords without overwriting or resetting
+ *    - ensures each user has a valid companyId (defaults to DEFAULT_COMPANY_ID)
  *    - ensures at least one active Super Admin account is available
  * 4. Ensures 'chitfund_auth' session key exists without modifying active session
  * 5. Runs synchronously before login can be attempted on any computer/browser
  */
 export function initializeAuthStorage(): UserAccount[] {
   try {
+    // Ensure company store exists
+    getStoredCompanies();
+
     let users: UserAccount[] | null = null;
 
     // 1. Read primary USERS_STORAGE_KEY ('chitfund_users')
@@ -72,7 +80,29 @@ export function initializeAuthStorage(): UserAccount[] {
         console.error('[AuthStorage] Failed to write chitfund_users to LocalStorage:', err);
       }
     } else {
-      // Users exist: guarantee default Super Admin account (chitfundadmin@gmail.com) exists and is Active
+      // Users exist: patch any missing companyId attributes safely
+      let patched = false;
+      users = users.map((u) => {
+        let userMod = false;
+        const updatedU = { ...u };
+        if (!updatedU.companyId) {
+          updatedU.companyId = DEFAULT_COMPANY_ID;
+          updatedU.companyName = updatedU.companyName || DEFAULT_COMPANY_NAME;
+          userMod = true;
+        }
+        if (!updatedU.createdAt) {
+          updatedU.createdAt = new Date().toISOString();
+          userMod = true;
+        }
+        if (!Array.isArray(updatedU.permissions)) {
+          updatedU.permissions = [];
+          userMod = true;
+        }
+        if (userMod) patched = true;
+        return updatedU;
+      });
+
+      // Guarantee default Super Admin account (chitfundadmin@gmail.com) exists and is Active
       const defaultEmailClean = ADMIN_CREDENTIALS.email.trim().toLowerCase();
       const existingAdminIndex = users.findIndex(
         (u) =>
@@ -81,18 +111,20 @@ export function initializeAuthStorage(): UserAccount[] {
           u.email.trim().toLowerCase() === 'chitfundadmin@123'
       );
 
-      let modified = false;
+      let modified = patched;
       if (existingAdminIndex !== -1) {
         const existing = users[existingAdminIndex];
-        // Ensure email is chitfundadmin@gmail.com, status is Active, role is Super Admin
         if (
           existing.email.trim().toLowerCase() !== defaultEmailClean ||
           existing.status !== 'Active' ||
-          existing.role !== 'Super Admin'
+          existing.role !== 'Super Admin' ||
+          !existing.companyId
         ) {
           users[existingAdminIndex] = {
             ...existing,
             id: ROOT_SUPERADMIN_ID,
+            companyId: existing.companyId || DEFAULT_COMPANY_ID,
+            companyName: existing.companyName || DEFAULT_COMPANY_NAME,
             email: ADMIN_CREDENTIALS.email,
             role: 'Super Admin',
             status: 'Active',
@@ -121,7 +153,14 @@ export function initializeAuthStorage(): UserAccount[] {
       try {
         localStorage.setItem(
           AUTH_STORAGE_KEY,
-          JSON.stringify({ isAuthenticated: false, userId: null, email: null })
+          JSON.stringify({
+            isAuthenticated: false,
+            userId: null,
+            email: null,
+            companyId: null,
+            companyName: null,
+            role: null,
+          })
         );
       } catch {}
     }
@@ -185,19 +224,38 @@ export function saveStoredUsers(users: UserAccount[]): void {
 export function getStoredAuthSession(): AuthSession {
   try {
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return { isAuthenticated: false, userId: null, email: null };
+    if (!raw) {
+      return {
+        isAuthenticated: false,
+        userId: null,
+        email: null,
+        companyId: null,
+        companyName: null,
+        role: null,
+      };
+    }
     const parsed = JSON.parse(raw);
     if (parsed && parsed.isAuthenticated === true) {
       return {
         isAuthenticated: true,
         userId: parsed.userId || ROOT_SUPERADMIN_ID,
         email: parsed.email || ADMIN_CREDENTIALS.email,
+        companyId: parsed.companyId || DEFAULT_COMPANY_ID,
+        companyName: parsed.companyName || DEFAULT_COMPANY_NAME,
+        role: parsed.role || 'Super Admin',
       };
     }
   } catch (err) {
     console.error('[AuthStorage] Failed to read auth session from LocalStorage:', err);
   }
-  return { isAuthenticated: false, userId: null, email: null };
+  return {
+    isAuthenticated: false,
+    userId: null,
+    email: null,
+    companyId: null,
+    companyName: null,
+    role: null,
+  };
 }
 
 /**
@@ -218,7 +276,14 @@ export function clearStoredAuthSession(): void {
   try {
     localStorage.setItem(
       AUTH_STORAGE_KEY,
-      JSON.stringify({ isAuthenticated: false, userId: null, email: null })
+      JSON.stringify({
+        isAuthenticated: false,
+        userId: null,
+        email: null,
+        companyId: null,
+        companyName: null,
+        role: null,
+      })
     );
   } catch (err) {
     console.error('[AuthStorage] Failed to clear auth session:', err);

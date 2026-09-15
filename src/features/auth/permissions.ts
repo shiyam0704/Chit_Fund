@@ -101,6 +101,8 @@ export const ADMIN_CREDENTIALS = {
 
 export const createDefaultSuperAdminUser = (): UserAccount => ({
   id: ROOT_SUPERADMIN_ID,
+  companyId: 'CMP-DEFAULT',
+  companyName: 'Chit Fund Management',
   name: 'Super Admin',
   email: ADMIN_CREDENTIALS.email,
   password: ADMIN_CREDENTIALS.password,

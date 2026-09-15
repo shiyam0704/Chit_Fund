@@ -10,6 +10,7 @@ import {
   ROOT_SUPERADMIN_ID,
 } from '@/features/auth/permissions';
 import { Modal } from '@/shared/components/ui';
+import { StaffInvitationModal } from './StaffInvitationModal';
 import {
   UserPlus,
   Shield,
@@ -25,6 +26,8 @@ import {
   Power,
   Layers,
   CheckCircle2,
+  Building2,
+  Share2,
 } from 'lucide-react';
 
 export interface PermissionOption {
@@ -288,6 +291,10 @@ const PermissionModuleGrid: React.FC<{
 export const UserManagementTable: React.FC = () => {
   const {
     users,
+    currentUser,
+    isSuperAdmin,
+    companyId,
+    companyName,
     createUser,
     updateUser,
     updateUserPermissions,
@@ -295,6 +302,7 @@ export const UserManagementTable: React.FC = () => {
     toggleUserStatus,
     deleteUser,
     getRoleDefaults,
+    generateUserActivationCredential,
   } = useAuth();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -307,6 +315,12 @@ export const UserManagementTable: React.FC = () => {
   const [permissionsUser, setPermissionsUser] = useState<UserAccount | null>(null);
   const [resetPasswordUser, setResetPasswordUser] = useState<UserAccount | null>(null);
   const [deletingUser, setDeletingUser] = useState<UserAccount | null>(null);
+
+  // Cross-device Staff Invitation Modal state
+  const [invitationModalUser, setInvitationModalUser] = useState<UserAccount | null>(null);
+  const [invitationModalToken, setInvitationModalToken] = useState<string | undefined>(undefined);
+  const [invitationModalChitUserFile, setInvitationModalChitUserFile] = useState<any | undefined>(undefined);
+  const [isInvitationModalOpen, setIsInvitationModalOpen] = useState(false);
 
   // Form States
   const [addForm, setAddForm] = useState({
@@ -344,22 +358,36 @@ export const UserManagementTable: React.FC = () => {
     setTimeout(() => setActionSuccessMessage(''), 4000);
   };
 
-  // Filtered User List
+  const handleOpenInvitation = (u: UserAccount) => {
+    setInvitationModalUser(u);
+    setInvitationModalToken(u.activationToken);
+    setInvitationModalChitUserFile(undefined);
+    setIsInvitationModalOpen(true);
+  };
+
+  // Filtered User List with company scoping
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
+      // Isolate users by company if not super admin
+      if (!isSuperAdmin() && u.companyId && u.companyId !== companyId) {
+        return false;
+      }
+
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         !q ||
         u.name.toLowerCase().includes(q) ||
         u.email.toLowerCase().includes(q) ||
-        u.role.toLowerCase().includes(q);
+        u.role.toLowerCase().includes(q) ||
+        (u.companyName && u.companyName.toLowerCase().includes(q)) ||
+        (u.companyId && u.companyId.toLowerCase().includes(q));
 
       const matchesRole = roleFilter === 'All' || u.role === roleFilter;
       const matchesStatus = statusFilter === 'All' || u.status === statusFilter;
 
       return matchesSearch && matchesRole && matchesStatus;
     });
-  }, [users, searchQuery, roleFilter, statusFilter]);
+  }, [users, searchQuery, roleFilter, statusFilter, isSuperAdmin, companyId]);
 
   // ---------------------------------------------------------------------------
   // HANDLERS: ADD USER
@@ -397,7 +425,7 @@ export const UserManagementTable: React.FC = () => {
     });
   };
 
-  const handleAddSubmit = (e: React.FormEvent) => {
+  const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAddFormError('');
 
@@ -421,7 +449,7 @@ export const UserManagementTable: React.FC = () => {
         ? [...ALL_PERMISSIONS]
         : Array.from(addPermissions);
 
-    const result = createUser({
+    const result = await createUser({
       name: addForm.name.trim(),
       email: addForm.email.trim(),
       password: addForm.password,
@@ -431,9 +459,14 @@ export const UserManagementTable: React.FC = () => {
       permissions: assignedPermissions,
     });
 
-    if (result.success) {
+    if (result.success && result.user) {
       setIsAddUserModalOpen(false);
       showNotification(`User account "${addForm.name.trim()}" created successfully.`);
+      // Open portable credential invitation modal for sharing
+      setInvitationModalUser(result.user);
+      setInvitationModalToken(result.token);
+      setInvitationModalChitUserFile(result.chitUserFile);
+      setIsInvitationModalOpen(true);
     } else {
       setAddFormError(result.message || 'Failed to create user.');
     }
@@ -542,7 +575,7 @@ export const UserManagementTable: React.FC = () => {
     setResetPasswordError('');
   };
 
-  const handleResetPasswordSubmit = (e: React.FormEvent) => {
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!resetPasswordUser) return;
     setResetPasswordError('');
@@ -557,7 +590,7 @@ export const UserManagementTable: React.FC = () => {
       return;
     }
 
-    const result = resetUserPassword(resetPasswordUser.id, newPassword);
+    const result = await resetUserPassword(resetPasswordUser.id, newPassword);
     if (result.success) {
       setResetPasswordUser(null);
       showNotification(`Password for "${resetPasswordUser.name}" has been reset successfully.`);
@@ -613,9 +646,13 @@ export const UserManagementTable: React.FC = () => {
         <div>
           <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
             <span>User Management ({users.length} Account{users.length === 1 ? '' : 's'})</span>
+            <span className="px-2 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/20 text-blue-400 font-mono text-[11px] font-semibold flex items-center gap-1">
+              <Building2 className="w-3 h-3" />
+              {companyName} ({companyId})
+            </span>
           </h3>
           <p className="text-[11px] text-slate-400 mt-0.5">
-            Super Admin-controlled administrative staff accounts, roles, and granular access permissions
+            Administrative staff accounts, roles, and granular access permissions for {companyName}
           </p>
         </div>
 
@@ -633,7 +670,7 @@ export const UserManagementTable: React.FC = () => {
           <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
-            placeholder="Search by name, email, or role..."
+            placeholder="Search by name, email, role, or company..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-2 bg-[#0B0F17] border border-[#1F293D] rounded-xl text-slate-200 text-xs placeholder-slate-500 focus:outline-none focus:border-blue-500"
@@ -668,19 +705,20 @@ export const UserManagementTable: React.FC = () => {
         <table className="w-full text-left border-collapse text-xs">
           <thead>
             <tr className="bg-[#0B0F17] border-b border-[#1F293D] text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              <th className="py-3 px-3.5">Name</th>
-              <th className="py-3 px-3">Email / Login ID</th>
-              <th className="py-3 px-3">Role</th>
-              <th className="py-3 px-3 text-center">Access</th>
-              <th className="py-3 px-3 text-center">Status</th>
-              <th className="py-3 px-3">Created Date</th>
-              <th className="py-3 px-3 text-right">Actions</th>
+              <th className="py-3 px-3.5 whitespace-nowrap">Name</th>
+              <th className="py-3 px-3 whitespace-nowrap">Email / Login ID</th>
+              <th className="py-3 px-3 whitespace-nowrap">Company</th>
+              <th className="py-3 px-3 whitespace-nowrap text-center">Role</th>
+              <th className="py-3 px-3 text-center whitespace-nowrap min-w-[110px]">Access</th>
+              <th className="py-3 px-3 text-center whitespace-nowrap">Status</th>
+              <th className="py-3 px-3 whitespace-nowrap">Created Date</th>
+              <th className="py-3 px-4 text-center whitespace-nowrap min-w-[240px]">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#1F293D]/50">
             {filteredUsers.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-slate-500">
+                <td colSpan={8} className="py-8 text-center text-slate-500">
                   <Layers className="w-8 h-8 mx-auto text-slate-600 mb-2 opacity-50" />
                   <p className="font-semibold text-slate-400">No users found</p>
                   <p className="text-[11px] text-slate-500 mt-0.5">Try adjusting your search or filter.</p>
@@ -689,7 +727,7 @@ export const UserManagementTable: React.FC = () => {
             ) : (
               filteredUsers.map((u) => {
                 const isRootSuperAdmin = u.id === ROOT_SUPERADMIN_ID || u.role === 'Super Admin';
-                const accessCount = u.permissions.length;
+                const accessCount = Array.isArray(u.permissions) ? u.permissions.length : 0;
 
                 return (
                   <tr key={u.id} className="hover:bg-[#182032] transition-colors group">
@@ -707,10 +745,18 @@ export const UserManagementTable: React.FC = () => {
                       {u.email}
                     </td>
 
-                    {/* Role */}
+                    {/* Company */}
                     <td className="py-3 px-3">
+                      <div className="font-semibold text-slate-200 text-xs truncate max-w-[130px]" title={u.companyName || u.companyId}>
+                        {u.companyName || 'Company'}
+                      </div>
+                      <span className="text-[10px] font-mono text-blue-400 block">{u.companyId || 'CMP-DEFAULT'}</span>
+                    </td>
+
+                    {/* Role */}
+                    <td className="py-3 px-3 text-center whitespace-nowrap">
                       <span
-                        className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border inline-block ${
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border inline-flex items-center justify-center whitespace-nowrap ${
                           u.role === 'Super Admin'
                             ? 'bg-purple-100 dark:bg-purple-500/15 border-purple-300 dark:border-purple-500/30 text-purple-800 dark:text-purple-300 font-bold'
                             : u.role === 'Admin / Manager'
@@ -723,9 +769,9 @@ export const UserManagementTable: React.FC = () => {
                     </td>
 
                     {/* Access / Permissions Badge */}
-                    <td className="py-3 px-3 text-center">
+                    <td className="py-3 px-3 text-center whitespace-nowrap">
                       <span
-                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold ${
+                        className={`inline-flex items-center justify-center whitespace-nowrap px-2.5 py-1 min-h-[24px] rounded-md text-[11px] font-mono font-semibold ${
                           isRootSuperAdmin
                             ? 'bg-purple-100 dark:bg-purple-500/15 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-500/30 font-bold'
                             : accessCount > 0
@@ -738,9 +784,9 @@ export const UserManagementTable: React.FC = () => {
                     </td>
 
                     {/* Status Badge */}
-                    <td className="py-3 px-3 text-center">
+                    <td className="py-3 px-3 text-center whitespace-nowrap">
                       <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                        className={`inline-flex items-center justify-center whitespace-nowrap px-2.5 py-1 rounded-full text-[10px] font-semibold ${
                           u.status === 'Active'
                             ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                             : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
@@ -751,63 +797,82 @@ export const UserManagementTable: React.FC = () => {
                     </td>
 
                     {/* Created Date */}
-                    <td className="py-3 px-3 text-slate-400 font-mono text-[11px]">
-                      {u.createdAt.split('T')[0]}
+                    <td className="py-3 px-3 text-slate-400 font-mono text-[11px] whitespace-nowrap">
+                      {u.createdAt
+                        ? u.createdAt.includes('T')
+                          ? u.createdAt.split('T')[0]
+                          : u.createdAt.split(' ')[0]
+                        : '-'}
                     </td>
 
                     {/* Actions */}
-                    <td className="py-3 px-3 text-right">
-                      <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                    <td className="py-3 px-4 text-center whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-3 flex-nowrap">
+                        {/* Cross-device Invitation & Token Modal */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenInvitation(u)}
+                          className="w-9 h-9 min-w-[36px] min-h-[36px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/15 transition-colors cursor-pointer shrink-0"
+                          title="View / Share Staff Cross-Device Invitation"
+                        >
+                          <Share2 className="w-4 h-4" />
+                        </button>
+
                         {/* Edit User Info & Role */}
                         <button
+                          type="button"
                           onClick={() => handleOpenEditUser(u)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-blue-400 hover:bg-blue-500/15 transition-colors cursor-pointer"
+                          className="w-9 h-9 min-w-[36px] min-h-[36px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-blue-400 hover:bg-blue-500/15 transition-colors cursor-pointer shrink-0"
                           title="Edit User Info & Role"
                         >
-                          <Edit2 className="w-3.5 h-3.5" />
+                          <Edit2 className="w-4 h-4" />
                         </button>
 
                         {/* Configure Granular Permissions */}
                         <button
+                          type="button"
                           onClick={() => handleOpenPermissions(u)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-purple-400 hover:bg-purple-500/15 transition-colors cursor-pointer"
+                          className="w-9 h-9 min-w-[36px] min-h-[36px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-purple-400 hover:bg-purple-500/15 transition-colors cursor-pointer shrink-0"
                           title="Configure Granular Permissions Matrix"
                         >
-                          <Shield className="w-3.5 h-3.5" />
+                          <Shield className="w-4 h-4" />
                         </button>
 
                         {/* Reset Password */}
                         <button
+                          type="button"
                           onClick={() => handleOpenResetPassword(u)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/15 transition-colors cursor-pointer"
+                          className="w-9 h-9 min-w-[36px] min-h-[36px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/15 transition-colors cursor-pointer shrink-0"
                           title="Reset Password"
                         >
-                          <KeyRound className="w-3.5 h-3.5" />
+                          <KeyRound className="w-4 h-4" />
                         </button>
 
                         {/* Enable / Disable */}
                         {!isRootSuperAdmin && (
                           <button
+                            type="button"
                             onClick={() => handleToggleStatus(u)}
-                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                            className={`w-9 h-9 min-w-[36px] min-h-[36px] inline-flex items-center justify-center rounded-lg transition-colors cursor-pointer shrink-0 ${
                               u.status === 'Active'
                                 ? 'text-slate-400 hover:text-rose-400 hover:bg-rose-500/15'
                                 : 'text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/15'
                             }`}
                             title={u.status === 'Active' ? 'Disable Account' : 'Enable Account'}
                           >
-                            <Power className="w-3.5 h-3.5" />
+                            <Power className="w-4 h-4" />
                           </button>
                         )}
 
                         {/* Delete Account */}
                         {!isRootSuperAdmin && (
                           <button
+                            type="button"
                             onClick={() => setDeletingUser(u)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/15 transition-colors cursor-pointer"
+                            className="w-9 h-9 min-w-[36px] min-h-[36px] inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/15 transition-colors cursor-pointer shrink-0"
                             title="Delete User Account"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         )}
                       </div>
@@ -1235,6 +1300,18 @@ export const UserManagementTable: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* ======================================================================= */}
+      {/* MODAL 6: STAFF ACCOUNT INVITATION & CROSS-DEVICE SETUP */}
+      {/* ======================================================================= */}
+      <StaffInvitationModal
+        isOpen={isInvitationModalOpen}
+        onClose={() => setIsInvitationModalOpen(false)}
+        user={invitationModalUser}
+        token={invitationModalToken}
+        chitUserFile={invitationModalChitUserFile}
+        onGenerateToken={generateUserActivationCredential}
+      />
     </div>
   );
 };

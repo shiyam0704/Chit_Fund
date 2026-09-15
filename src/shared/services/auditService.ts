@@ -1,12 +1,23 @@
 import { AuditAction, AuditModule, AuditStatus, AuditFieldChange, AuditLogEntry } from '@/types';
+import { getActiveCompanyId, DEFAULT_COMPANY_ID } from '@/features/auth/utils/companyStorage';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 export const AUDIT_STORAGE_KEY = 'chitfund_audit_logs';
 const MAX_AUDIT_LOGS = 2500;
+
+export function getCompanyAuditKey(companyId?: string): string {
+  const targetId = companyId || getActiveCompanyId();
+  return `chitfund_company_${targetId}_audit_logs`;
+}
+
 const SENSITIVE_KEYS = new Set([
   'password',
   'passwordhash',
+  'passwordverifier',
+  'verifier',
+  'salt',
+  'activationtoken',
   'accesstoken',
   'refreshtoken',
   'token',
@@ -15,6 +26,7 @@ const SENSITIVE_KEYS = new Set([
   'privatekey',
   'securityanswer',
   'confirmpassword',
+  'credential',
 ]);
 
 const FIELD_LABELS: Record<string, string> = {
@@ -182,91 +194,115 @@ export function getBrowserContext(): { ipAddress: string; userAgent: string } {
 }
 
 /**
- * Loads all audit logs from storage.
- * Starts with an empty clean array and automatically purges any legacy dummy seed logs.
+ * Loads all audit logs from storage for the specified or active company.
+ * Safely migrates legacy audit logs to DEFAULT_COMPANY_ID if needed.
  */
-export function getAuditLogs(): AuditLogEntry[] {
+export function getAuditLogs(companyId?: string): AuditLogEntry[] {
+  const targetCompanyId = companyId || getActiveCompanyId();
+  const scopedKey = getCompanyAuditKey(targetCompanyId);
+
   try {
-    const raw = localStorage.getItem(AUDIT_STORAGE_KEY);
-    if (!raw) {
-      return [];
+    const raw = localStorage.getItem(scopedKey);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
     }
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
+
+    // Check legacy key if target is DEFAULT_COMPANY_ID
+    if (targetCompanyId === DEFAULT_COMPANY_ID) {
+      const legacyRaw = localStorage.getItem(AUDIT_STORAGE_KEY);
+      if (legacyRaw) {
+        try {
+          const parsedLegacy = JSON.parse(legacyRaw);
+          if (Array.isArray(parsedLegacy) && parsedLegacy.length > 0) {
+            const migrated = parsedLegacy.map((entry) => ({
+              ...entry,
+              companyId: entry.companyId || DEFAULT_COMPANY_ID,
+            }));
+            saveAuditLogs(migrated, DEFAULT_COMPANY_ID);
+            return migrated;
+          }
+        } catch {}
+      }
     }
-    // Clean out any legacy mock/seed logs if present in local storage
-    const cleaned = parsed.filter(
-      (log) =>
-        !log.id?.startsWith('AUD-17263000') &&
-        !log.id?.startsWith('AUD-17257000') &&
-        log.recordName !== 'Lakshmi Deepam 25M' &&
-        log.recordName !== 'Silver Fortune 20M' &&
-        log.recordName !== 'Dhanlaxmi 15M Scheme'
-    );
-    if (cleaned.length !== parsed.length) {
-      try {
-        localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(cleaned));
-      } catch {}
-    }
-    return cleaned;
+
+    return [];
   } catch (err) {
-    console.error('[AuditService] Failed to read audit logs:', err);
+    console.error(`[AuditService] Failed to read audit logs for company ${targetCompanyId}:`, err);
     return [];
   }
 }
 
 /**
- * Completely clears all audit logs from storage.
+ * Completely clears all audit logs from storage for the specified company.
  */
-export function clearAllAuditLogs(): void {
+export function clearAllAuditLogs(companyId?: string): void {
+  const targetCompanyId = companyId || getActiveCompanyId();
+  const scopedKey = getCompanyAuditKey(targetCompanyId);
+
   try {
-    localStorage.removeItem(AUDIT_STORAGE_KEY);
+    localStorage.removeItem(scopedKey);
+    if (targetCompanyId === DEFAULT_COMPANY_ID) {
+      try {
+        localStorage.removeItem(AUDIT_STORAGE_KEY);
+      } catch {}
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('chitfund_audit_updated', { detail: 0 }));
     }
   } catch (err) {
-    console.error('[AuditService] Failed to clear audit logs:', err);
+    console.error(`[AuditService] Failed to clear audit logs for company ${targetCompanyId}:`, err);
   }
 }
 
 /**
- * Deletes a single audit log entry by ID.
+ * Deletes a single audit log entry by ID for the specified company.
  */
-export function deleteAuditLog(id: string): boolean {
+export function deleteAuditLog(id: string, companyId?: string): boolean {
+  const targetCompanyId = companyId || getActiveCompanyId();
+  const scopedKey = getCompanyAuditKey(targetCompanyId);
+
   try {
-    const raw = localStorage.getItem(AUDIT_STORAGE_KEY);
+    const raw = localStorage.getItem(scopedKey);
     if (!raw) return false;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return false;
     const filtered = parsed.filter((item: AuditLogEntry) => item.id !== id);
-    localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(filtered));
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('chitfund_audit_updated', { detail: filtered.length }));
-    }
+    saveAuditLogs(filtered, targetCompanyId);
     return true;
   } catch (err) {
-    console.error('[AuditService] Failed to delete audit log:', err);
+    console.error(`[AuditService] Failed to delete audit log from company ${targetCompanyId}:`, err);
     return false;
   }
 }
 
 /**
- * Save logs to storage (append-only)
+ * Save logs to storage (company-scoped)
  */
-function saveAuditLogs(logs: AuditLogEntry[]): void {
+export function saveAuditLogs(logs: AuditLogEntry[], companyId?: string): void {
+  const targetCompanyId = companyId || getActiveCompanyId();
+  const scopedKey = getCompanyAuditKey(targetCompanyId);
+
   try {
     const trimmed = logs.slice(0, MAX_AUDIT_LOGS);
-    localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(trimmed));
+    localStorage.setItem(scopedKey, JSON.stringify(trimmed));
+    if (targetCompanyId === DEFAULT_COMPANY_ID) {
+      try {
+        localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(trimmed));
+      } catch {}
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('chitfund_audit_updated', { detail: trimmed.length }));
     }
   } catch (err) {
-    console.error('[AuditService] Failed to save audit log:', err);
+    console.error(`[AuditService] Failed to save audit logs for company ${targetCompanyId}:`, err);
   }
 }
 
 export interface LogActivityParams {
+  companyId?: string;
   userId?: string;
   userName?: string;
   userRole?: string;
@@ -284,7 +320,7 @@ export interface LogActivityParams {
 }
 
 /**
- * Log a new activity into the immutable audit trail
+ * Log a new activity into the immutable company-scoped audit trail
  */
 export function logActivity(params: LogActivityParams): AuditLogEntry {
   const { ipAddress, userAgent } = getBrowserContext();
@@ -292,8 +328,9 @@ export function logActivity(params: LogActivityParams): AuditLogEntry {
   let activeUserId = params.userId;
   let activeUserName = params.userName;
   let activeUserRole = params.userRole;
+  let targetCompanyId = params.companyId;
 
-  if (!activeUserId || !activeUserName) {
+  if (!activeUserId || !activeUserName || !targetCompanyId) {
     try {
       const authRaw = localStorage.getItem('chitfund_auth');
       if (authRaw) {
@@ -302,11 +339,13 @@ export function logActivity(params: LogActivityParams): AuditLogEntry {
           activeUserId = activeUserId || session.userId;
           activeUserName = activeUserName || session.name || session.email || 'Super Admin';
           activeUserRole = activeUserRole || session.role || 'Super Admin';
+          targetCompanyId = targetCompanyId || session.companyId;
         }
       }
     } catch {}
   }
 
+  targetCompanyId = targetCompanyId || getActiveCompanyId();
   activeUserId = activeUserId || 'USR-SUPERADMIN';
   activeUserName = activeUserName || 'Super Admin';
   activeUserRole = activeUserRole || 'Super Admin';
@@ -321,6 +360,7 @@ export function logActivity(params: LogActivityParams): AuditLogEntry {
 
   const newEntry: AuditLogEntry = {
     id: `AUD-${Date.now()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`,
+    companyId: targetCompanyId,
     userId: activeUserId,
     userName: activeUserName,
     userRole: activeUserRole,
@@ -340,8 +380,8 @@ export function logActivity(params: LogActivityParams): AuditLogEntry {
     createdAt: new Date().toISOString(),
   };
 
-  const existing = getAuditLogs();
-  saveAuditLogs([newEntry, ...existing]);
+  const existing = getAuditLogs(targetCompanyId);
+  saveAuditLogs([newEntry, ...existing], targetCompanyId);
 
   return newEntry;
 }

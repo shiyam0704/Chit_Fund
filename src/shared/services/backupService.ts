@@ -9,7 +9,8 @@ import {
   getAppData,
   saveAppData,
 } from '@/shared/utils/storage';
-import { getAuditLogs, logActivity, AUDIT_STORAGE_KEY } from './auditService';
+import { getActiveCompanyId, DEFAULT_COMPANY_ID } from '@/features/auth/utils/companyStorage';
+import { getAuditLogs, logActivity, saveAuditLogs, AUDIT_STORAGE_KEY } from './auditService';
 
 export const BACKUP_HISTORY_KEY = 'chitfund_backup_history';
 
@@ -138,15 +139,19 @@ export async function createSystemBackup(
     if (onProgress) onProgress('Collecting members, transactions, and collections...', 45);
     await yieldTime();
 
-    // 3. Users & Role Defaults (Sanitized)
+    // 3. Users & Role Defaults (Sanitized for active company)
     if (onProgress) onProgress('Collecting user roles and access policies...', 60);
     await yieldTime();
+    const activeCompanyId = appData.companyId || getActiveCompanyId();
     let usersList: any[] = [];
     try {
       const rawUsers = localStorage.getItem(USERS_STORAGE_KEY);
       if (rawUsers) usersList = JSON.parse(rawUsers);
     } catch {}
-    const sanitizedUsers = sanitizeUsersForBackup(usersList);
+    const companyUsers = usersList.filter(
+      (u: any) => !u.companyId || u.companyId === activeCompanyId || u.role === 'Super Admin'
+    );
+    const sanitizedUsers = sanitizeUsersForBackup(companyUsers);
 
     let roleDefaults: any = null;
     try {
@@ -154,10 +159,10 @@ export async function createSystemBackup(
       if (rawRoles) roleDefaults = JSON.parse(rawRoles);
     } catch {}
 
-    // 4. Audit Trail
+    // 4. Audit Trail for this company
     if (onProgress) onProgress('Collecting immutable audit trail logs...', 75);
     await yieldTime();
-    const auditLogs = getAuditLogs();
+    const auditLogs = getAuditLogs(activeCompanyId);
 
     // 5. Build Metadata
     const counts = {
@@ -204,7 +209,8 @@ export async function createSystemBackup(
     const jsonString = JSON.stringify(backupPackage, null, 2);
     const timestamp = getBackupTimestamp();
     const prefix = isSafetyBackup ? 'PreRestore_Backup' : 'ChitFund_Backup';
-    const fileName = `${prefix}_${timestamp}.chitbackup`;
+    const compName = (appData.companySettings?.companyName || 'Company').replace(/[^a-zA-Z0-9]/g, '_');
+    const fileName = `${prefix}_${compName}_${timestamp}.chitbackup`;
     const sizeFormatted = formatBytes(new Blob([jsonString]).size);
 
     if (onProgress) onProgress('Finalizing backup package...', 98);
@@ -397,7 +403,9 @@ export async function restoreSystemBackup(
 
     // 2. Restore App Data (chits, members, transactions, payouts, settings)
     const newAppData = backupPackage.data.appData;
-    saveAppData(newAppData);
+    const targetCompanyId = newAppData?.companyId || getActiveCompanyId();
+    newAppData.companyId = targetCompanyId;
+    saveAppData(newAppData, targetCompanyId);
 
     // 3. Restore Users & Preserve Admin Credentials
     try {
@@ -412,11 +420,15 @@ export async function restoreSystemBackup(
         if (ru.role === 'Super Admin' && superAdminExisting) {
           return {
             ...ru,
+            companyId: ru.companyId || targetCompanyId,
             password: superAdminExisting.password,
             email: superAdminExisting.email,
           };
         }
-        return ru;
+        return {
+          ...ru,
+          companyId: ru.companyId || targetCompanyId,
+        };
       });
 
       // If restored users had no super admin, keep current superadmin
@@ -442,6 +454,7 @@ export async function restoreSystemBackup(
     // Permanent completion log
     const completionLog = {
       id: `AUD-RESTORE-${Date.now()}`,
+      companyId: targetCompanyId,
       userId: user.id || 'USR-SUPERADMIN',
       userName: user.name || 'Super Admin',
       userRole: user.role || 'Super Admin',
@@ -457,13 +470,13 @@ export async function restoreSystemBackup(
     };
 
     const mergedAudit = [completionLog, startLog, ...restoredAuditLogs];
-    localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(mergedAudit));
+    saveAuditLogs(mergedAudit, targetCompanyId);
 
     // 6. Broadcast reactive event updates across the app
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('chitfund_app_data_updated'));
       window.dispatchEvent(new CustomEvent('chitfund_audit_updated', { detail: mergedAudit.length }));
-      window.dispatchEvent(new StorageEvent('storage', { key: APP_DATA_KEY, newValue: JSON.stringify(newAppData) }));
+      window.dispatchEvent(new CustomEvent('chitfund_company_changed', { detail: targetCompanyId }));
     }
 
     return {

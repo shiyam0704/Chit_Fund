@@ -63,15 +63,30 @@ Options -Indexes
 </IfModule>
 
 # ----------------------------------------------------------------------
-# 4. SINGLE PAGE APPLICATION (SPA) ROUTING REWRITE
+# 4. PASS AUTHORIZATION HEADERS TO PHP (Hostinger FastCGI / LiteSpeed)
+# ----------------------------------------------------------------------
+<IfModule mod_setenvif.c>
+  SetEnvIfNoCase Authorization "(.*)" HTTP_AUTHORIZATION=$1
+</IfModule>
+
+# ----------------------------------------------------------------------
+# 5. SINGLE PAGE APPLICATION (SPA) ROUTING REWRITE
 # ----------------------------------------------------------------------
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
 
+  # Pass Authorization Header to PHP in FastCGI / LiteSpeed
+  RewriteCond %{HTTP:Authorization} .
+  RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
   # Allow existing real files and directories to be served directly
   RewriteCond %{REQUEST_FILENAME} -f [OR]
   RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Exclude API endpoints from SPA rewrite
+  RewriteCond %{REQUEST_URI} ^/api/ [NC]
   RewriteRule ^ - [L]
 
   # Redirect all other SPA routes to index.html

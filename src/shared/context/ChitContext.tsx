@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import {
   ChitScheme,
   Member,
@@ -14,8 +14,26 @@ import {
   getAppData,
   updateAppData,
   defaultCompanySettings,
+  getCompanyAppDataKey,
 } from '@/shared/utils/storage';
+import { getActiveCompanyId } from '@/features/auth/utils/companyStorage';
 import { logActivity, clearAllAuditLogs } from '@/shared/services/auditService';
+import {
+  syncCompanyData,
+  apiCreateChit,
+  apiUpdateChit,
+  apiDeleteChit,
+  apiCreateMember,
+  apiUpdateMember,
+  apiDeleteMember,
+  apiCreateTransaction,
+  apiUpdateTransaction,
+  apiDeleteTransaction,
+  apiCreatePayout,
+  apiDeletePayout,
+  apiSaveSettings,
+  apiMigrateLocalStorage,
+} from '@/shared/services/companyDataService';
 
 interface Toast {
   id: string;
@@ -67,6 +85,8 @@ interface ChitContextType {
   openReceipt: (txn: PaymentTransaction) => void;
   closeReceipt: () => void;
   clearAllData: () => void;
+  syncWithBackend: (silent?: boolean) => Promise<void>;
+  migrateOfflineData: () => Promise<{ success: boolean; message: string; imported?: any }>;
 }
 
 const ChitContext = createContext<ChitContextType | undefined>(undefined);
@@ -192,28 +212,186 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
     updateAppData((prev) => ({ ...prev, theme }));
   }, [theme]);
 
-  useEffect(() => {
-    const handler = (e: StorageEvent) => {
-      if (e.key === 'chitfund_app_data' && e.newValue) {
-        try {
-          const parsed = JSON.parse(e.newValue);
-          if (parsed) {
-            if (parsed.chits) setChits(parsed.chits);
-            if (parsed.members) setMembers(parsed.members);
-            if (parsed.transactions) setTransactions(parsed.transactions);
-            if (parsed.payouts) setPayouts(parsed.payouts);
-            if (parsed.manualWinnerAssignments) setManualWinnerAssignments(parsed.manualWinnerAssignments);
-            if (parsed.companySettings) setCompanySettings(parsed.companySettings);
-            if (parsed.theme) setTheme(parsed.theme);
-          }
-        } catch (err) {
-          console.error('[ChitContext] Failed to parse cross-tab storage update', err);
+  const reloadCompanyData = useCallback((targetCompanyId?: string) => {
+    const fresh = getAppData(targetCompanyId);
+    setCompanySettings(fresh.companySettings || defaultCompanySettings);
+    setChits(fresh.chits || []);
+    setMembers(fresh.members || []);
+    setTransactions(fresh.transactions || []);
+    setPayouts(fresh.payouts || []);
+    setManualWinnerAssignments(fresh.manualWinnerAssignments || {});
+    if (fresh.theme) setTheme(fresh.theme);
+  }, []);
+
+  const recentlyDeletedRef = React.useRef<Set<string>>(new Set());
+
+  const syncWithBackend = useCallback(async (silent = true) => {
+    try {
+      const res = await syncCompanyData();
+      if (res?.success && res.data) {
+        const serverData = res.data;
+        const currentAppData = getAppData();
+
+        // 1. Chits Merge: Server authoritative, but NEVER wipe unsynced local chits
+        let finalChits: ChitScheme[] = [];
+        if (Array.isArray(serverData.chits)) {
+          const serverChitMap = new Map<string, ChitScheme>();
+          serverData.chits.forEach((c) => serverChitMap.set(c.id, c));
+
+          // Retain local chits not yet on server (unless recently deleted)
+          const unsyncedLocalChits = (currentAppData.chits || []).filter(
+            (c) => !serverChitMap.has(c.id) && !recentlyDeletedRef.current.has(c.id)
+          );
+
+          // Push local unsynced chits to server so database is populated
+          unsyncedLocalChits.forEach((localChit) => {
+            apiCreateChit(localChit).catch((e) => console.warn('Background sync push chit error:', e));
+          });
+
+          finalChits = [...serverData.chits, ...unsyncedLocalChits];
+          setChits(finalChits);
+        } else {
+          finalChits = currentAppData.chits || [];
         }
+
+        // 2. Members Merge: Server authoritative, but NEVER wipe unsynced local members
+        let finalMembers: Member[] = [];
+        if (Array.isArray(serverData.members)) {
+          const serverMemberMap = new Map<string, Member>();
+          serverData.members.forEach((m) => serverMemberMap.set(m.id, m));
+
+          const unsyncedLocalMembers = (currentAppData.members || []).filter(
+            (m) => !serverMemberMap.has(m.id) && !recentlyDeletedRef.current.has(m.id)
+          );
+
+          unsyncedLocalMembers.forEach((localMember) => {
+            apiCreateMember(localMember).catch((e) => console.warn('Background sync push member error:', e));
+          });
+
+          finalMembers = [...serverData.members, ...unsyncedLocalMembers];
+          setMembers(finalMembers);
+        } else {
+          finalMembers = currentAppData.members || [];
+        }
+
+        // 3. Transactions Merge
+        let finalTransactions: PaymentTransaction[] = [];
+        if (Array.isArray(serverData.transactions)) {
+          const serverTxnMap = new Map<string, PaymentTransaction>();
+          serverData.transactions.forEach((t) => serverTxnMap.set(t.id, t));
+
+          const unsyncedLocalTxns = (currentAppData.transactions || []).filter(
+            (t) => !serverTxnMap.has(t.id) && !recentlyDeletedRef.current.has(t.id)
+          );
+
+          unsyncedLocalTxns.forEach((localTxn) => {
+            apiCreateTransaction(localTxn).catch((e) => console.warn('Background sync push txn error:', e));
+          });
+
+          finalTransactions = [...serverData.transactions, ...unsyncedLocalTxns];
+          setTransactions(finalTransactions);
+        } else {
+          finalTransactions = currentAppData.transactions || [];
+        }
+
+        // 4. Payouts Merge
+        let finalPayouts: ChitPayout[] = [];
+        if (Array.isArray(serverData.payouts)) {
+          const serverPayoutMap = new Map<string, ChitPayout>();
+          serverData.payouts.forEach((p) => serverPayoutMap.set(p.id, p));
+
+          const unsyncedLocalPayouts = (currentAppData.payouts || []).filter(
+            (p) => !serverPayoutMap.has(p.id) && !recentlyDeletedRef.current.has(p.id)
+          );
+
+          unsyncedLocalPayouts.forEach((localPayout) => {
+            apiCreatePayout(localPayout).catch((e) => console.warn('Background sync push payout error:', e));
+          });
+
+          finalPayouts = [...serverData.payouts, ...unsyncedLocalPayouts];
+          setPayouts(finalPayouts);
+        } else {
+          finalPayouts = currentAppData.payouts || [];
+        }
+
+        // 5. Settings
+        if (serverData.companySettings) {
+          setCompanySettings(serverData.companySettings);
+        }
+
+        // Update local persistent storage with guaranteed merged state
+        updateAppData((prev) => ({
+          ...prev,
+          chits: finalChits,
+          members: finalMembers,
+          transactions: finalTransactions,
+          payouts: finalPayouts,
+          companySettings: serverData.companySettings || prev.companySettings,
+        }));
+      }
+    } catch (err: any) {
+      if (!silent) {
+        console.warn('Backend sync warning:', err);
+      }
+    }
+  }, []);
+
+  const migrateOfflineData = useCallback(async () => {
+    try {
+      const current = getAppData();
+      const res = await apiMigrateLocalStorage({
+        chits: current.chits,
+        members: current.members,
+        transactions: current.transactions,
+        payouts: current.payouts,
+        companySettings: current.companySettings,
+      });
+      await syncWithBackend(true);
+      return res;
+    } catch (err: any) {
+      return { success: false, message: err.message || 'Migration failed' };
+    }
+  }, [syncWithBackend]);
+
+  useEffect(() => {
+    const handleCompanyChange = (e: any) => {
+      reloadCompanyData(e?.detail);
+      syncWithBackend(true);
+    };
+    const handleAppUpdated = () => reloadCompanyData();
+
+    window.addEventListener('chitfund_company_changed', handleCompanyChange);
+    window.addEventListener('chitfund_app_data_updated', handleAppUpdated);
+
+    const handler = (e: StorageEvent) => {
+      const activeKey = getCompanyAppDataKey();
+      if ((e.key === activeKey || e.key === 'chitfund_app_data') && e.newValue) {
+        reloadCompanyData();
       }
     };
     window.addEventListener('storage', handler);
-    return () => window.removeEventListener('storage', handler);
-  }, []);
+
+    // Initial sync
+    syncWithBackend(true);
+
+    // Smart polling for live cross-device synchronization: every 4.5 seconds when active
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        syncWithBackend(true);
+      }
+    }, 4500);
+
+    const onFocus = () => syncWithBackend(true);
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('chitfund_company_changed', handleCompanyChange);
+      window.removeEventListener('chitfund_app_data_updated', handleAppUpdated);
+      window.removeEventListener('storage', handler);
+    };
+  }, [reloadCompanyData, syncWithBackend]);
 
   const toggleTheme = () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
 
@@ -231,6 +409,7 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const updated = { ...companySettings, ...settings };
     setCompanySettings(updated);
     updateAppData((prev) => ({ ...prev, companySettings: updated }));
+    apiSaveSettings(updated).catch((e) => console.warn('API save settings error', e));
 
     logActivity({
       action: 'UPDATE',
@@ -503,6 +682,7 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const newChit: ChitScheme = {
       id,
+      companyId: chitData.companyId || getActiveCompanyId(),
       name: chitData.name,
       chitAmount: chitData.chitAmount,
       membersCount: count,
@@ -532,6 +712,7 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setChits((prev) => [newChit, ...prev]);
     updateAppData((prev) => ({ ...prev, chits: [newChit, ...prev.chits] }));
+    apiCreateChit(newChit).catch((e) => console.warn('API create chit error', e));
 
     logActivity({
       action: 'CREATE',
@@ -551,6 +732,7 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const existing = chits.find((c) => c.id === id);
     setChits((prev) => prev.map((c) => (c.id === id ? { ...c, ...chitData } : c)));
     updateAppData((prev) => ({ ...prev, chits: prev.chits.map((c) => (c.id === id ? { ...c, ...chitData } : c)) }));
+    apiUpdateChit(id, chitData).catch((e) => console.warn('API update chit error', e));
 
     if (existing) {
       logActivity({
@@ -571,10 +753,12 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const deleteChit = (id: string) => {
     const existing = chits.find((c) => c.id === id);
     if (!existing) return;
+    recentlyDeletedRef.current.add(id);
     setChits((prev) => prev.filter((c) => c.id !== id));
     setMembers((prev) => prev.filter((m) => m.chitId !== id).map((m) => ({ ...m, enrolledChitIds: m.enrolledChitIds?.filter((x) => x !== id) })));
     setTransactions((prev) => prev.filter((t) => t.chitId !== id));
     setPayouts((prev) => prev.filter((p) => p.chitId !== id));
+    apiDeleteChit(id).catch((e) => console.warn('API delete chit error', e));
 
     updateAppData((prev) => ({
       ...prev,
@@ -796,6 +980,7 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const newMember: Member = {
       id,
+      companyId: memberData.companyId || getActiveCompanyId(),
       name: memberData.name.trim(),
       phone: memberData.phone.trim(),
       email: memberData.email?.trim() || '',
@@ -845,6 +1030,8 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
       afterData: newMember,
       status: 'Success',
     });
+
+    apiCreateMember(newMember).catch((e) => console.warn('API create member error', e));
 
     addToast('Member Registered', `Member ${newMember.name} (${id}) added to Member Directory`, 'success');
     return newMember;
@@ -906,16 +1093,21 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     }
 
+    apiUpdateMember(id, memberData).catch((e) => console.warn('API update member error', e));
+
     addToast('Member Updated', `Profile details for member ${id} saved`, 'success');
   };
 
   const deleteMember = (id: string) => {
     const existing = members.find((m) => m.id === id);
     if (!existing) return;
+    recentlyDeletedRef.current.add(id);
     const hasTxns = transactions.some((t) => t.memberId === id);
     const hasAssignments = chits.some((c) =>
       Object.values(c.monthMemberAssignments || {}).some((val) => (Array.isArray(val) ? val.includes(id) : val === id))
     );
+
+    apiDeleteMember(id).catch((e) => console.warn('API delete member error', e));
 
     if (hasTxns || hasAssignments) {
       setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, status: 'Inactive', isAssigned: false } : m)));
@@ -1103,6 +1295,7 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const newTxn: PaymentTransaction = {
       id: `TXN-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      companyId: params.companyId || getActiveCompanyId(),
       receiptNo,
       memberId: finalMemId,
       payerMemberId: finalMemId,
@@ -1176,6 +1369,8 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
       status: 'Success',
     });
 
+    apiCreateTransaction(newTxn).catch((e) => console.warn('API create transaction error', e));
+
     addToast('Payment Recorded!', `Receipt #${receiptNo} created for ₹${params.amount.toLocaleString('en-IN')}`, 'success');
     setActiveReceiptModal(newTxn);
     return newTxn;
@@ -1187,6 +1382,7 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const diff = (data.amount === undefined ? existing.amount : data.amount) - existing.amount;
 
     setTransactions((prev) => prev.map((t) => (t.id === id ? { ...t, ...data } : t)));
+    apiUpdateTransaction(id, data).catch((e) => console.warn('API update transaction error', e));
     if (diff !== 0 && existing.type === 'Collection' && existing.chitId) {
       setChits((prev) =>
         prev.map((c) =>
@@ -1235,7 +1431,9 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const deleteTransaction = (id: string) => {
     const existing = transactions.find((t) => t.id === id);
     if (!existing) return;
+    recentlyDeletedRef.current.add(id);
     setTransactions((prev) => prev.filter((t) => t.id !== id));
+    apiDeleteTransaction(id).catch((e) => console.warn('API delete transaction error', e));
     if (existing.type === 'Collection' && existing.chitId) {
       setChits((prev) =>
         prev.map((c) =>
@@ -1289,6 +1487,7 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const newPayout: ChitPayout = {
       id: `POUT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      companyId: params.companyId || getActiveCompanyId(),
       chitId: params.chitId,
       monthId: `${params.chitId}-M${params.monthNumber}`,
       monthNumber: params.monthNumber,
@@ -1374,6 +1573,8 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
       status: 'Success',
     });
 
+    apiCreatePayout(newPayout).catch((e) => console.warn('API create payout error', e));
+
     addToast('Payout Recorded', `Month ${params.monthNumber} payout of ₹${params.amount.toLocaleString('en-IN')} to ${winnerName} saved.`, 'success');
     return newPayout;
   };
@@ -1381,6 +1582,7 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const deletePayout = (chitId: string, monthNumber: number) => {
     const existing = payouts.find((p) => p.chitId === chitId && p.monthNumber === monthNumber);
     setPayouts((prev) => prev.filter((p) => p.chitId !== chitId || p.monthNumber !== monthNumber));
+    apiDeletePayout(chitId, monthNumber).catch((e) => console.warn('API delete payout error', e));
     setChits((prev) =>
       prev.map((c) => {
         if (c.id === chitId) {
@@ -1488,6 +1690,8 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
         openReceipt,
         closeReceipt,
         clearAllData,
+        syncWithBackend,
+        migrateOfflineData,
       }}
     >
       {children}

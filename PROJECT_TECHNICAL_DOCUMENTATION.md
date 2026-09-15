@@ -35,10 +35,10 @@ The application is structured as a client-side Single Page Application (SPA) pow
 | **Persistence / DB** | LocalStorage API | Native Web API | Client-side persistent key-value document store | `src/shared/utils/storage.ts`, services |
 | **Integrity / Crypto** | Web Crypto API | Native (`crypto.subtle`)| SHA-256 cryptographic hashing for backup integrity | `src/shared/services/backupService.ts` |
 | **Linter** | Oxlint | `^1.79.0` | Ultra-fast JavaScript/TypeScript linter | Code quality checking (`npm run lint`) |
-| **Backend** | *Not implemented.* | N/A | No dedicated server process (Node/Express/NestJS/Django) exists. Persistence is local client-side. | N/A |
-| **Database Server** | *Not implemented.* | N/A | No SQL (PostgreSQL, MySQL) or NoSQL (MongoDB) server. LocalStorage JSON used. | N/A |
-| **REST API Server** | *Not implemented.* | N/A | Client-side in-memory services act as the data provider layer. | N/A |
-| **Hosting Platform** | Apache / LiteSpeed / Hostinger | Custom `.htaccess` | Static asset hosting, security headers, SPA rewrite rules | `public/.htaccess`, `dist/` |
+| **Backend API** | PHP 8.x / REST API | Native Hostinger | Multi-tenant REST endpoints (`/api/*`), PDO prepared statements | `public/api/`, `dist/api/` |
+| **Database Server** | MySQL / MariaDB (Hostinger) | 8.0+ / 10.x | Relational multi-tenant schema with company foreign keys | `public/api/schema.sql` |
+| **Authentication Engine**| JWT (HMAC-SHA256) | Custom Native | Cryptographic bearer token with companyId and permissions | `public/api/jwt.php`, `middleware.php` |
+| **Hosting Platform** | Apache / LiteSpeed / Hostinger | Custom `.htaccess` | Static asset hosting, security headers, SPA rewrite rules, API routing | `public/.htaccess`, `dist/` |
 
 ---
 
@@ -859,6 +859,103 @@ erDiagram
 | **Hashing Engine** | Web Crypto API (`crypto.subtle`)| Native Web API | SHA-256 backup package integrity verification | Security Service |
 | **Local Database Store**| HTML5 LocalStorage API | Native Web API | JSON document persistence | Persistence Engine |
 | **Production Web Server**| Apache / LiteSpeed (Hostinger) | Custom `.htaccess` | Static file hosting, security headers, SPA rewrite | Deployment |
-| **Backend Server** | *Not implemented.* | N/A | No remote backend server is present in codebase | Backend |
-| **SQL Database** | *Not implemented.* | N/A | No SQL database is present in codebase | Database |
-| **Automated Test Suite**| *Not implemented.* | N/A | No Vitest/Jest runner configured in codebase | Testing |
+| **Backend API** | PHP 8.x REST API | Native Hostinger | Multi-tenant REST endpoints (`/api/*`), PDO prepared statements | Backend |
+| **Relational Database** | MySQL / MariaDB | 8.0+ / 10.x | Centralized multi-company persistent data store | Database |
+| **Token Authentication**| HMAC-SHA256 JWT | Native | Bearer session tokens with tenant verification | Security |
+| **Automated Test Suite**| Node.js Crypto & Sync Test | Native | Verification of cross-device sync and tenant isolation | Testing |
+
+---
+
+## 51. Multi-Company Architecture, Centralized Database & Cross-Device Synchronization
+
+### 51.1 Architectural Overview
+The Chit Fund Management System has evolved from an offline single-browser application into a true **Multi-Company, Multi-User Enterprise System** with cross-device synchronized shared data. All users belonging to the same company work on the exact same authoritative company data across separate computers, tablets, and phones.
+
+Different companies (e.g., Company A, Company B, Company C) remain strictly isolated at the database and API level. Company B users can never access or modify Company A records.
+
+### 51.2 Multi-Tenant Data & Company Model
+Every company has a permanent, unique identifier formatted as `CMP-XXXXXXXX` (e.g., `CMP-001`, `CMP-COMP-B`).
+Every company-owned business record in the relational database contains a mandatory foreign key `company_id` referencing `companies(id)`:
+- `chits.company_id`
+- `members.company_id`
+- `transactions.company_id`
+- `payouts.company_id`
+- `users.company_id`
+- `company_settings.company_id`
+- `audit_logs.company_id`
+
+### 51.3 Relational Database Schema (`public/api/schema.sql`)
+The MySQL/MariaDB database schema is fully defined in [schema.sql](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/schema.sql) and copied to `dist/api/schema.sql` on build:
+1. `companies` — `id`, `name`, `status`, `created_at`
+2. `users` — `id`, `company_id`, `name`, `email`, `password_hash`, `role`, `custom_role_name`, `status`, `permissions`, `created_at`
+3. `chits` — Complete scheme parameters, schedules, auction rules, step-up configs, overrides, and payouts JSON.
+4. `members` — Contact info, ID proof, enrolled chit schemes, joining date, active status.
+5. `transactions` — Collection payments, receipts, amounts, payment modes (Cash, UPI, Bank Transfer, Cheque).
+6. `payouts` — Prize disbursements, dividends, bids, commission deductions, references.
+7. `company_settings` — Company-specific branding, receipt prefixes, GST, address, chit rules.
+8. `audit_logs` — Immutable audit trail with actor name, role, IP address, module, timestamp, before and after data.
+
+### 51.4 Backend REST API & Authentication Engine
+The backend REST API is implemented in pure PHP 8.x, fully compatible with Hostinger shared, cloud, and cPanel environments:
+- [config.php](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/config.php) — Database credentials, environment configuration, response wrappers, CORS headers.
+- [db.php](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/db.php) — PDO connection pool with MySQL support and auto-provisioned local SQLite fallback for offline developer workflows.
+- [jwt.php](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/jwt.php) — Pure PHP HMAC-SHA256 JWT encoding, decoding, and tamper verification.
+- [middleware.php](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/middleware.php) — Authenticates Bearer tokens, verifies user active status, extracts session `companyId`.
+- [auth.php](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/auth.php) — Login, session validation, pre-seeded Super Admin fallback (`chitfundadmin@gmail.com` / `adminchit@123`).
+- [sync.php](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/sync.php) — High-performance synchronization endpoint returning all authoritative company data.
+- [chits.php](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/chits.php) — Chits CRUD scoped to session `companyId`.
+- [members.php](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/members.php) — Members CRUD scoped to session `companyId`.
+- [transactions.php](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/transactions.php) — Collections CRUD scoped to session `companyId`.
+- [payouts.php](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/payouts.php) — Payouts CRUD scoped to session `companyId`.
+- [users.php](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/users.php) — User management scoped to session `companyId`.
+- [settings.php](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/settings.php) — Company profile & receipt settings.
+- [audit.php](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/audit.php) — Company audit logging and review.
+- [migrate.php](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/migrate.php) — Safe migration from LocalStorage to the central database.
+
+### 51.5 Cryptographic Tenant Isolation (IDOR Immunity)
+Tenant isolation is enforced strictly at the database query layer:
+```php
+$session = authenticateUser(); // Verifies JWT cryptographic signature
+$companyId = $session['companyId']; // Extracted from verified token
+
+// All database queries explicitly bind $companyId:
+$stmt = $pdo->prepare("SELECT * FROM chits WHERE company_id = :companyId ORDER BY created_at DESC");
+$stmt->execute(['companyId' => $companyId]);
+```
+Even if an attacker modifies frontend HTTP parameters, query strings, or JSON bodies to request `companyId="CMP-OTHER"`, the backend strictly ignores client-supplied tenant IDs and restricts operations exclusively to the authenticated session's company.
+
+### 51.6 Cross-Device Shared Data Flow & Real-Time Sync
+1. **Admin A on Device 1** creates Chit A:
+   - Frontend state updates optimistically.
+   - [companyDataService.ts](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/src/shared/services/companyDataService.ts) sends `POST /api/chits.php?action=create`.
+   - MySQL commits Chit A tagged with `company_id = CMP-001`.
+2. **Manager A on Device 2**:
+   - Background poller in [ChitContext.tsx](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/src/shared/context/ChitContext.tsx) queries `/api/sync.php` every 4.5 seconds (and immediately when window receives focus).
+   - Authoritative data is returned from MySQL and updates React state.
+   - Chit A is visible to Manager A without manual refresh!
+
+### 51.7 LocalStorage Legacy Migration
+Existing browser LocalStorage records are not deleted or overwritten:
+- [storage.ts](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/src/shared/utils/storage.ts) automatically migrated legacy `chitfund_app_data` to `chitfund_company_CMP-DEFAULT_app_data`.
+- Calling `migrateOfflineData()` via [companyDataService.ts](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/src/shared/services/companyDataService.ts) safely uploads all existing chits, members, transactions, payouts, and settings to `/api/migrate.php`, establishing the central database as the source of truth.
+
+### 51.8 Hostinger Deployment Guide
+1. **Hostinger Database Setup**:
+   - In Hostinger hPanel or cPanel, go to **Databases** $\rightarrow$ **MySQL Databases**.
+   - Create a new database (e.g. `u123456789_chitfund`) and database user with password.
+   - Open **phpMyAdmin**, select the database, and click **Import**.
+   - Choose [schema.sql](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/schema.sql) and execute.
+2. **Configure Database Credentials**:
+   - In `public/api/config.php` (or in Hostinger File Manager under `public_html/api/config.php`), update:
+     ```php
+     define('DB_HOST', 'localhost');
+     define('DB_NAME', 'u123456789_chitfund');
+     define('DB_USER', 'u123456789_user');
+     define('DB_PASS', 'your_secure_password');
+     define('JWT_SECRET', 'your_custom_production_jwt_secret');
+     ```
+3. **Deploy Web Application**:
+   - Run `npm run build` locally.
+   - Upload the entire contents of `dist/` (which contains `index.html`, `assets/`, `.htaccess`, and `api/`) to Hostinger `public_html/`.
+   - The `.htaccess` file automatically routes API requests to `/api/*` and SPA web routes to `index.html`.
+

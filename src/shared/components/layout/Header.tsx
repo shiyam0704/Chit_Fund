@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChit } from '@/shared/context/ChitContext';
 import { useAuth } from '@/features/auth';
-import { Shield, Moon, Sun, LogOut, Menu } from 'lucide-react';
+import { Shield, Moon, Sun, LogOut, Menu, Building2 } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 
 interface HeaderProps {
@@ -11,7 +11,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
   const { theme, toggleTheme, addToast } = useChit();
-  const { logout, email, currentUser } = useAuth();
+  const { logout, email, currentUser, companyName, companyId } = useAuth();
   const navigate = useNavigate();
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
 
@@ -50,6 +50,13 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
               >
                 <Menu className="w-5 h-5" />
               </button>
+
+              {/* Company Context Badge on Desktop */}
+              <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#161D2F] border border-[#243048] text-xs font-semibold text-slate-200 shadow-sm" title={`Company ID: ${companyId}`}>
+                <Building2 className="w-3.5 h-3.5 text-blue-400" />
+                <span className="truncate max-w-[150px]">{companyName}</span>
+                <span className="font-mono text-[10px] text-blue-400/90 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">{companyId}</span>
+              </div>
             </div>
 
             <div className="flex items-center gap-3">

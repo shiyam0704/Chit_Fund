@@ -1,12 +1,19 @@
 import { CompanySettings, ChitScheme, Member, PaymentTransaction, ChitPayout, UserAccount } from '@/types';
 import { createDefaultSuperAdminUser, DEFAULT_ROLE_PERMISSIONS } from '@/features/auth/permissions';
+import { getActiveCompanyId, DEFAULT_COMPANY_ID, getCompanyById } from '@/features/auth/utils/companyStorage';
 
 export const APP_DATA_KEY = 'chitfund_app_data';
 export const AUTH_STORAGE_KEY = 'chitfund_auth';
 export const USERS_STORAGE_KEY = 'chitfund_users';
 
+export function getCompanyAppDataKey(companyId?: string): string {
+  const targetId = companyId || getActiveCompanyId();
+  return `chitfund_company_${targetId}_app_data`;
+}
+
 export interface AppData {
   version: number;
+  companyId?: string;
   theme: 'dark' | 'light';
   companySettings: CompanySettings;
   chits: ChitScheme[];
@@ -34,22 +41,39 @@ export const defaultCompanySettings: CompanySettings = {
   signatureText: 'Authorized Signatory',
 };
 
-export const getDefaultAppData = (): AppData => ({
-  version: 2,
-  theme: 'dark',
-  companySettings: defaultCompanySettings,
-  chits: [],
-  members: [],
-  transactions: [],
-  payouts: [],
-  manualWinnerAssignments: {},
-  users: [createDefaultSuperAdminUser()],
-  roleDefaults: DEFAULT_ROLE_PERMISSIONS,
-});
+export const getDefaultAppData = (companyId?: string): AppData => {
+  const targetCompanyId = companyId || getActiveCompanyId();
+  const companyInfo = getCompanyById(targetCompanyId);
+  const companyName = companyInfo?.name || defaultCompanySettings.companyName;
 
-export const getAppData = (): AppData => {
+  return {
+    version: 2,
+    companyId: targetCompanyId,
+    theme: 'dark',
+    companySettings: {
+      ...defaultCompanySettings,
+      companyName,
+      logoText: companyName.split(' ')[0] || 'Chit Fund',
+    },
+    chits: [],
+    members: [],
+    transactions: [],
+    payouts: [],
+    manualWinnerAssignments: {},
+    users: [createDefaultSuperAdminUser()],
+    roleDefaults: DEFAULT_ROLE_PERMISSIONS,
+  };
+};
+
+/**
+ * Loads company-scoped application data with automatic safe migration from legacy storage.
+ */
+export const getCompanyAppData = (companyId?: string): AppData => {
+  const targetCompanyId = companyId || getActiveCompanyId();
+  const scopedKey = getCompanyAppDataKey(targetCompanyId);
+
   try {
-    const raw = localStorage.getItem(APP_DATA_KEY);
+    const rawScoped = localStorage.getItem(scopedKey);
 
     // Read primary users store ('chitfund_users') if present
     let primaryUsers: UserAccount[] | undefined;
@@ -63,62 +87,114 @@ export const getAppData = (): AppData => {
       } catch {}
     }
 
-    if (!raw) {
-      const initial = getDefaultAppData();
-      if (primaryUsers && primaryUsers.length > 0) {
-        initial.users = primaryUsers;
-      }
-      saveAppData(initial);
-      if (!rawUsers) {
-        try {
-          localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(initial.users));
-        } catch {}
-      }
-      return initial;
-    }
-    const data = JSON.parse(raw);
-    const resolvedUsers: UserAccount[] = primaryUsers || (Array.isArray(data.users) && data.users.length > 0
-      ? data.users
-      : [createDefaultSuperAdminUser()]);
+    if (rawScoped) {
+      const data = JSON.parse(rawScoped);
+      const resolvedUsers: UserAccount[] = primaryUsers || (Array.isArray(data.users) && data.users.length > 0
+        ? data.users
+        : [createDefaultSuperAdminUser()]);
 
-    return {
-      version: 2,
-      theme: data.theme || 'dark',
-      companySettings: data.companySettings || defaultCompanySettings,
-      chits: Array.isArray(data.chits) ? data.chits : [],
-      members: Array.isArray(data.members) ? data.members : [],
-      transactions: Array.isArray(data.transactions) ? data.transactions : [],
-      payouts: Array.isArray(data.payouts) ? data.payouts : [],
-      manualWinnerAssignments: data.manualWinnerAssignments || {},
-      users: resolvedUsers,
-      roleDefaults: data.roleDefaults || DEFAULT_ROLE_PERMISSIONS,
-    };
+      return {
+        version: 2,
+        companyId: targetCompanyId,
+        theme: data.theme || 'dark',
+        companySettings: data.companySettings || defaultCompanySettings,
+        chits: Array.isArray(data.chits) ? data.chits : [],
+        members: Array.isArray(data.members) ? data.members : [],
+        transactions: Array.isArray(data.transactions) ? data.transactions : [],
+        payouts: Array.isArray(data.payouts) ? data.payouts : [],
+        manualWinnerAssignments: data.manualWinnerAssignments || {},
+        users: resolvedUsers,
+        roleDefaults: data.roleDefaults || DEFAULT_ROLE_PERMISSIONS,
+      };
+    }
+
+    // Scoped data does not exist yet for this company.
+    // Check if legacy chitfund_app_data exists and we are loading DEFAULT_COMPANY_ID:
+    // Safely migrate existing legacy data without loss!
+    const rawLegacy = localStorage.getItem(APP_DATA_KEY);
+    if (rawLegacy && targetCompanyId === DEFAULT_COMPANY_ID) {
+      try {
+        const legacyData = JSON.parse(rawLegacy);
+        const migrated: AppData = {
+          version: 2,
+          companyId: DEFAULT_COMPANY_ID,
+          theme: legacyData.theme || 'dark',
+          companySettings: legacyData.companySettings || defaultCompanySettings,
+          chits: (legacyData.chits || []).map((c: any) => ({ ...c, companyId: DEFAULT_COMPANY_ID })),
+          members: (legacyData.members || []).map((m: any) => ({ ...m, companyId: DEFAULT_COMPANY_ID })),
+          transactions: (legacyData.transactions || []).map((t: any) => ({ ...t, companyId: DEFAULT_COMPANY_ID })),
+          payouts: (legacyData.payouts || []).map((p: any) => ({ ...p, companyId: DEFAULT_COMPANY_ID })),
+          manualWinnerAssignments: legacyData.manualWinnerAssignments || {},
+          users: primaryUsers || legacyData.users || [createDefaultSuperAdminUser()],
+          roleDefaults: legacyData.roleDefaults || DEFAULT_ROLE_PERMISSIONS,
+        };
+        saveCompanyAppData(migrated, DEFAULT_COMPANY_ID);
+        return migrated;
+      } catch (e) {
+        console.warn('[Storage] Legacy data migration warning:', e);
+      }
+    }
+
+    // No existing data found: seed fresh company dataset
+    const initial = getDefaultAppData(targetCompanyId);
+    if (primaryUsers && primaryUsers.length > 0) {
+      initial.users = primaryUsers;
+    }
+    saveCompanyAppData(initial, targetCompanyId);
+    return initial;
   } catch (err) {
-    console.error('[Storage] Error reading application data from LocalStorage:', err);
-    const fallback = getDefaultAppData();
-    saveAppData(fallback);
+    console.error(`[Storage] Error reading application data for company ${targetCompanyId}:`, err);
+    const fallback = getDefaultAppData(targetCompanyId);
+    saveCompanyAppData(fallback, targetCompanyId);
     return fallback;
   }
 };
 
-export const saveAppData = (data: AppData): boolean => {
+/**
+ * Persists company-scoped application data to LocalStorage.
+ */
+export const saveCompanyAppData = (data: AppData, companyId?: string): boolean => {
+  const targetCompanyId = companyId || data.companyId || getActiveCompanyId();
+  const scopedKey = getCompanyAppDataKey(targetCompanyId);
+
   try {
-    const serialized = JSON.stringify(data);
-    localStorage.setItem(APP_DATA_KEY, serialized);
+    const dataWithCompany: AppData = {
+      ...data,
+      companyId: targetCompanyId,
+    };
+    const serialized = JSON.stringify(dataWithCompany);
+    localStorage.setItem(scopedKey, serialized);
+
+    // If active company is DEFAULT_COMPANY_ID, mirror to legacy key for backwards compatibility
+    if (targetCompanyId === DEFAULT_COMPANY_ID) {
+      try {
+        localStorage.setItem(APP_DATA_KEY, serialized);
+      } catch {}
+    }
+
     return true;
   } catch (err: any) {
-    console.error('[Storage] Failed to save application data to LocalStorage:', err);
+    console.error(`[Storage] Failed to save app data for company ${targetCompanyId}:`, err);
     if (err?.name === 'QuotaExceededError' || err?.code === 22) {
-      alert('Warning: Browser LocalStorage quota has been exceeded! Some changes could not be saved. Try deleting old large receipt images.');
+      alert('Warning: Browser LocalStorage quota has been exceeded! Try deleting large receipt attachments.');
     }
     return false;
   }
 };
 
-export const updateAppData = (updater: (prev: AppData) => AppData): AppData => {
-  const current = getAppData();
+export const getAppData = (companyId?: string): AppData => {
+  return getCompanyAppData(companyId);
+};
+
+export const saveAppData = (data: AppData, companyId?: string): boolean => {
+  return saveCompanyAppData(data, companyId);
+};
+
+export const updateAppData = (updater: (prev: AppData) => AppData, companyId?: string): AppData => {
+  const targetCompanyId = companyId || getActiveCompanyId();
+  const current = getCompanyAppData(targetCompanyId);
   const next = updater(current);
-  saveAppData(next);
+  saveCompanyAppData(next, targetCompanyId);
   return next;
 };
 

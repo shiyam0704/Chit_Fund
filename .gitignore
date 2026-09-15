@@ -10,3 +10,4 @@ release/
 .DS_Store
 Thumbs.db
 .vscode/*.png
+.chitfund-dev-db/

@@ -14,6 +14,7 @@ export type Permission = string;
 
 export interface Member {
   id: string;
+  companyId?: string;
   name: string;
   phone: string;
   email?: string;
@@ -80,6 +81,7 @@ export interface MonthlyScheduleItem {
 
 export interface PaymentTransaction {
   id: string;
+  companyId?: string;
   receiptNo?: string;
   chitId?: string;
   chitName?: string;
@@ -118,6 +120,7 @@ export type Transaction = PaymentTransaction;
 
 export interface ChitPayout {
   id: string;
+  companyId?: string;
   chitId: string;
   monthId?: string;
   monthNumber: number;
@@ -171,6 +174,7 @@ export interface ChitSlot extends Member {
 
 export interface ChitScheme {
   id: string;
+  companyId?: string;
   name: string;
   chitAmount: number;
   memberCount?: number;
@@ -207,6 +211,13 @@ export interface ChitScheme {
 
 export type Chit = ChitScheme;
 
+export interface Company {
+  id: string; // Unique permanent ID e.g. CMP-XXXXXXXX
+  name: string;
+  createdAt: string;
+  status: 'Active' | 'Disabled';
+}
+
 export interface CompanySettings {
   companyName: string;
   name?: string;
@@ -230,9 +241,15 @@ export type UserStatus = 'Active' | 'Disabled';
 
 export interface UserAccount {
   id: string;
+  companyId: string; // Scoped company ID
+  companyName?: string;
   name: string;
   email: string;
   password?: string;
+  salt?: string;
+  passwordVerifier?: string;
+  activationToken?: string;
+  activationCode?: string;
   role: UserRole;
   customRoleName?: string;
   status: UserStatus;
@@ -288,6 +305,7 @@ export interface AuditFieldChange {
 
 export interface AuditLogEntry {
   id: string;
+  companyId?: string;
   userId: string;
   userName: string;
   userRole: string;
