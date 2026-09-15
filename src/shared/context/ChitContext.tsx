@@ -224,6 +224,7 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const recentlyDeletedRef = React.useRef<Set<string>>(new Set());
+  const inFlightSyncRef = React.useRef<Set<string>>(new Set());
 
   const syncWithBackend = useCallback(async (silent = true) => {
     try {
@@ -243,9 +244,16 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
             (c) => !serverChitMap.has(c.id) && !recentlyDeletedRef.current.has(c.id)
           );
 
-          // Push local unsynced chits to server so database is populated
+          // Push local unsynced chits to server so database is populated (once per item)
           unsyncedLocalChits.forEach((localChit) => {
-            apiCreateChit(localChit).catch((e) => console.warn('Background sync push chit error:', e));
+            if (inFlightSyncRef.current.has(localChit.id)) return;
+            inFlightSyncRef.current.add(localChit.id);
+            apiCreateChit(localChit)
+              .then(() => inFlightSyncRef.current.delete(localChit.id))
+              .catch((e) => {
+                inFlightSyncRef.current.delete(localChit.id);
+                console.warn('Background sync push chit error:', e);
+              });
           });
 
           finalChits = [...serverData.chits, ...unsyncedLocalChits];
@@ -265,7 +273,14 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
 
           unsyncedLocalMembers.forEach((localMember) => {
-            apiCreateMember(localMember).catch((e) => console.warn('Background sync push member error:', e));
+            if (inFlightSyncRef.current.has(localMember.id)) return;
+            inFlightSyncRef.current.add(localMember.id);
+            apiCreateMember(localMember)
+              .then(() => inFlightSyncRef.current.delete(localMember.id))
+              .catch((e) => {
+                inFlightSyncRef.current.delete(localMember.id);
+                console.warn('Background sync push member error:', e);
+              });
           });
 
           finalMembers = [...serverData.members, ...unsyncedLocalMembers];
@@ -285,7 +300,14 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
           );
 
           unsyncedLocalTxns.forEach((localTxn) => {
-            apiCreateTransaction(localTxn).catch((e) => console.warn('Background sync push txn error:', e));
+            if (inFlightSyncRef.current.has(localTxn.id)) return;
+            inFlightSyncRef.current.add(localTxn.id);
+            apiCreateTransaction(localTxn)
+              .then(() => inFlightSyncRef.current.delete(localTxn.id))
+              .catch((e) => {
+                inFlightSyncRef.current.delete(localTxn.id);
+                console.warn('Background sync push txn error:', e);
+              });
           });
 
           finalTransactions = [...serverData.transactions, ...unsyncedLocalTxns];

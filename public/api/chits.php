@@ -34,27 +34,7 @@ if ($action === 'create') {
         $duration = (int)($input['durationMonths'] ?? 10);
         $base = (float)($input['baseMonthlyAmount'] ?? ($input['chitAmount'] / max(1, $count)));
 
-        $stmt = $pdo->prepare("
-            INSERT INTO chits (
-                id, company_id, name, chit_amount, duration_months, members_count,
-                monthly_installment, base_monthly_amount, initial_bid_amount,
-                bid_reduction_method, bid_reduction_value, collected_amount, pending_amount,
-                start_date, end_date, commission_percentage, grace_period_days, status,
-                description, installment_type, monthly_increase_amount, step_up_config,
-                auctions, is_configured, enrolled_member_ids, month_member_assignments,
-                month_overrides, month_statuses, month_payouts
-            ) VALUES (
-                :id, :company_id, :name, :chit_amount, :duration_months, :members_count,
-                :monthly_installment, :base_monthly_amount, :initial_bid_amount,
-                :bid_reduction_method, :bid_reduction_value, :collected_amount, :pending_amount,
-                :start_date, :end_date, :commission_percentage, :grace_period_days, :status,
-                :description, :installment_type, :monthly_increase_amount, :step_up_config,
-                :auctions, :is_configured, :enrolled_member_ids, :month_member_assignments,
-                :month_overrides, :month_statuses, :month_payouts
-            )
-        ");
-
-        $stmt->execute([
+        $params = [
             'id' => $id,
             'company_id' => $companyId,
             'name' => $input['name'],
@@ -84,7 +64,69 @@ if ($action === 'create') {
             'month_overrides' => !empty($input['monthOverrides']) ? json_encode($input['monthOverrides']) : null,
             'month_statuses' => !empty($input['monthStatuses']) ? json_encode($input['monthStatuses']) : null,
             'month_payouts' => !empty($input['monthPayouts']) ? json_encode($input['monthPayouts']) : null,
-        ]);
+        ];
+
+        // Check if chit with this id already exists (UPSERT pattern for both SQLite & MySQL)
+        $chk = $pdo->prepare("SELECT id FROM chits WHERE id = :id LIMIT 1");
+        $chk->execute(['id' => $id]);
+        if ($chk->fetch()) {
+            $uStmt = $pdo->prepare("
+                UPDATE chits SET
+                    company_id = :company_id,
+                    name = :name,
+                    chit_amount = :chit_amount,
+                    duration_months = :duration_months,
+                    members_count = :members_count,
+                    monthly_installment = :monthly_installment,
+                    base_monthly_amount = :base_monthly_amount,
+                    initial_bid_amount = :initial_bid_amount,
+                    bid_reduction_method = :bid_reduction_method,
+                    bid_reduction_value = :bid_reduction_value,
+                    collected_amount = :collected_amount,
+                    pending_amount = :pending_amount,
+                    start_date = :start_date,
+                    end_date = :end_date,
+                    commission_percentage = :commission_percentage,
+                    grace_period_days = :grace_period_days,
+                    status = :status,
+                    description = :description,
+                    installment_type = :installment_type,
+                    monthly_increase_amount = :monthly_increase_amount,
+                    step_up_config = :step_up_config,
+                    auctions = :auctions,
+                    is_configured = :is_configured,
+                    enrolled_member_ids = :enrolled_member_ids,
+                    month_member_assignments = :month_member_assignments,
+                    month_overrides = :month_overrides,
+                    month_statuses = :month_statuses,
+                    month_payouts = :month_payouts
+                WHERE id = :id
+            ");
+            $uStmt->execute($params);
+            jsonResponse(['success' => true, 'id' => $id, 'message' => "Chit updated successfully"]);
+        }
+
+        $stmt = $pdo->prepare("
+            INSERT INTO chits (
+                id, company_id, name, chit_amount, duration_months, members_count,
+                monthly_installment, base_monthly_amount, initial_bid_amount,
+                bid_reduction_method, bid_reduction_value, collected_amount, pending_amount,
+                start_date, end_date, commission_percentage, grace_period_days, status,
+                description, installment_type, monthly_increase_amount, step_up_config,
+                auctions, is_configured, enrolled_member_ids, month_member_assignments,
+                month_overrides, month_statuses, month_payouts
+            ) VALUES (
+                :id, :company_id, :name, :chit_amount, :duration_months, :members_count,
+                :monthly_installment, :base_monthly_amount, :initial_bid_amount,
+                :bid_reduction_method, :bid_reduction_value, :collected_amount, :pending_amount,
+                :start_date, :end_date, :commission_percentage, :grace_period_days, :status,
+                :description, :installment_type, :monthly_increase_amount, :step_up_config,
+                :auctions, :is_configured, :enrolled_member_ids, :month_member_assignments,
+                :month_overrides, :month_statuses, :month_payouts
+            )
+        ");
+
+        $stmt->execute($params);
 
         jsonResponse(['success' => true, 'id' => $id, 'message' => "Chit created successfully"]);
     } catch (Exception $e) {

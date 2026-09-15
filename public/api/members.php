@@ -31,19 +31,7 @@ if ($action === 'create') {
     try {
         $id = $input['id'] ?? ('MEM-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 8)));
 
-        $stmt = $pdo->prepare("
-            INSERT INTO members (
-                id, company_id, name, phone, email, address,
-                id_proof_type, id_proof_number, join_date, status,
-                enrolled_chit_ids, chit_id, chit_name, notes
-            ) VALUES (
-                :id, :company_id, :name, :phone, :email, :address,
-                :id_proof_type, :id_proof_number, :join_date, :status,
-                :enrolled_chit_ids, :chit_id, :chit_name, :notes
-            )
-        ");
-
-        $stmt->execute([
+        $params = [
             'id' => $id,
             'company_id' => $companyId,
             'name' => $input['name'],
@@ -58,7 +46,46 @@ if ($action === 'create') {
             'chit_id' => $input['chitId'] ?? '',
             'chit_name' => $input['chitName'] ?? '',
             'notes' => $input['notes'] ?? '',
-        ]);
+        ];
+
+        // Check if member already exists (UPSERT pattern)
+        $chk = $pdo->prepare("SELECT id FROM members WHERE id = :id LIMIT 1");
+        $chk->execute(['id' => $id]);
+        if ($chk->fetch()) {
+            $uStmt = $pdo->prepare("
+                UPDATE members SET
+                    company_id = :company_id,
+                    name = :name,
+                    phone = :phone,
+                    email = :email,
+                    address = :address,
+                    id_proof_type = :id_proof_type,
+                    id_proof_number = :id_proof_number,
+                    join_date = :join_date,
+                    status = :status,
+                    enrolled_chit_ids = :enrolled_chit_ids,
+                    chit_id = :chit_id,
+                    chit_name = :chit_name,
+                    notes = :notes
+                WHERE id = :id
+            ");
+            $uStmt->execute($params);
+            jsonResponse(['success' => true, 'id' => $id, 'message' => "Member updated successfully"]);
+        }
+
+        $stmt = $pdo->prepare("
+            INSERT INTO members (
+                id, company_id, name, phone, email, address,
+                id_proof_type, id_proof_number, join_date, status,
+                enrolled_chit_ids, chit_id, chit_name, notes
+            ) VALUES (
+                :id, :company_id, :name, :phone, :email, :address,
+                :id_proof_type, :id_proof_number, :join_date, :status,
+                :enrolled_chit_ids, :chit_id, :chit_name, :notes
+            )
+        ");
+
+        $stmt->execute($params);
 
         jsonResponse(['success' => true, 'id' => $id, 'message' => "Member created successfully"]);
     } catch (Exception $e) {

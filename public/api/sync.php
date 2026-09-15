@@ -13,9 +13,21 @@ $session = authenticateUser();
 $companyId = $session['companyId'];
 $pdo = Database::getConnection();
 
+// Normalize default company IDs: if logged in as CMP-001 or CMP-DEFAULT or Super Admin
+if ($companyId === 'CMP-001' || $companyId === 'CMP-DEFAULT' || $session['role'] === 'Super Admin') {
+    try {
+        $pdo->exec("UPDATE chits SET company_id = 'CMP-001' WHERE company_id = 'CMP-DEFAULT' OR company_id = '' OR company_id IS NULL");
+        $pdo->exec("UPDATE members SET company_id = 'CMP-001' WHERE company_id = 'CMP-DEFAULT' OR company_id = '' OR company_id IS NULL");
+        $pdo->exec("UPDATE transactions SET company_id = 'CMP-001' WHERE company_id = 'CMP-DEFAULT' OR company_id = '' OR company_id IS NULL");
+        $pdo->exec("UPDATE payouts SET company_id = 'CMP-001' WHERE company_id = 'CMP-DEFAULT' OR company_id = '' OR company_id IS NULL");
+        $pdo->exec("UPDATE company_settings SET company_id = 'CMP-001' WHERE company_id = 'CMP-DEFAULT' OR company_id = '' OR company_id IS NULL");
+    } catch (Exception $e) {}
+    $companyId = 'CMP-001';
+}
+
 try {
     // 1. Fetch Company Chits
-    $cStmt = $pdo->prepare("SELECT * FROM chits WHERE company_id = :companyId ORDER BY created_at DESC");
+    $cStmt = $pdo->prepare("SELECT * FROM chits WHERE company_id = :companyId OR (company_id IN ('CMP-001', 'CMP-DEFAULT') AND :companyId = 'CMP-001') ORDER BY created_at DESC");
     $cStmt->execute(['companyId' => $companyId]);
     $rawChits = $cStmt->fetchAll();
     $chits = [];
@@ -55,7 +67,7 @@ try {
     }
 
     // 2. Fetch Company Members
-    $mStmt = $pdo->prepare("SELECT * FROM members WHERE company_id = :companyId ORDER BY created_at DESC");
+    $mStmt = $pdo->prepare("SELECT * FROM members WHERE company_id = :companyId OR (company_id IN ('CMP-001', 'CMP-DEFAULT') AND :companyId = 'CMP-001') ORDER BY created_at DESC");
     $mStmt->execute(['companyId' => $companyId]);
     $rawMembers = $mStmt->fetchAll();
     $members = [];
@@ -79,7 +91,7 @@ try {
     }
 
     // 3. Fetch Company Transactions
-    $tStmt = $pdo->prepare("SELECT * FROM transactions WHERE company_id = :companyId ORDER BY payment_date DESC, created_at DESC");
+    $tStmt = $pdo->prepare("SELECT * FROM transactions WHERE company_id = :companyId OR (company_id IN ('CMP-001', 'CMP-DEFAULT') AND :companyId = 'CMP-001') ORDER BY payment_date DESC, created_at DESC");
     $tStmt->execute(['companyId' => $companyId]);
     $rawTxns = $tStmt->fetchAll();
     $transactions = [];
@@ -102,7 +114,7 @@ try {
     }
 
     // 4. Fetch Company Payouts
-    $pStmt = $pdo->prepare("SELECT * FROM payouts WHERE company_id = :companyId ORDER BY payout_date DESC");
+    $pStmt = $pdo->prepare("SELECT * FROM payouts WHERE company_id = :companyId OR (company_id IN ('CMP-001', 'CMP-DEFAULT') AND :companyId = 'CMP-001') ORDER BY payout_date DESC");
     $pStmt->execute(['companyId' => $companyId]);
     $rawPayouts = $pStmt->fetchAll();
     $payouts = [];
