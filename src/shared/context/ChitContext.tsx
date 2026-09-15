@@ -18,6 +18,7 @@ import {
 } from '@/shared/utils/storage';
 import { getActiveCompanyId } from '@/features/auth/utils/companyStorage';
 import { logActivity, clearAllAuditLogs } from '@/shared/services/auditService';
+import { getAuthToken } from '@/shared/services/apiClient';
 import {
   syncCompanyData,
   apiCreateChit,
@@ -227,6 +228,10 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const inFlightSyncRef = React.useRef<Set<string>>(new Set());
 
   const syncWithBackend = useCallback(async (silent = true) => {
+    // Do not attempt background sync when user is not authenticated (e.g. on login page)
+    const token = getAuthToken();
+    if (!token) return;
+
     try {
       const res = await syncCompanyData();
       if (res?.success && res.data) {
@@ -393,17 +398,21 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     window.addEventListener('storage', handler);
 
-    // Initial sync
-    syncWithBackend(true);
+    // Initial sync (only if user is authenticated)
+    if (getAuthToken()) {
+      syncWithBackend(true);
+    }
 
-    // Smart polling for live cross-device synchronization: every 4.5 seconds when active
+    // Smart polling for live cross-device synchronization: every 4.5 seconds when active and logged in
     const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && getAuthToken()) {
         syncWithBackend(true);
       }
     }, 4500);
 
-    const onFocus = () => syncWithBackend(true);
+    const onFocus = () => {
+      if (getAuthToken()) syncWithBackend(true);
+    };
     window.addEventListener('focus', onFocus);
 
     return () => {
