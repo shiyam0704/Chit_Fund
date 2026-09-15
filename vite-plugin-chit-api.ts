@@ -174,10 +174,46 @@ export function chitApiDevPlugin(): Plugin {
           res.end(JSON.stringify({ error: true, message: msg }));
         };
 
+        const PERM_ALIASES: Record<string, string[]> = {
+          'dashboard.view': ['dashboard.view', 'VIEW_DASHBOARD', 'DASHBOARD_VIEW'],
+          'chits.view': ['chits.view', 'VIEW_CHITS', 'CHITS_VIEW'],
+          'chits.create': ['chits.create', 'CHITS_CREATE', 'CREATE_CHITS'],
+          'chits.edit': ['chits.edit', 'CHITS_EDIT', 'EDIT_CHITS'],
+          'chits.delete': ['chits.delete', 'CHITS_DELETE', 'DELETE_CHITS'],
+          'members.view': ['members.view', 'VIEW_MEMBERS', 'MEMBERS_VIEW'],
+          'members.create': ['members.create', 'MEMBERS_CREATE', 'CREATE_MEMBERS'],
+          'members.edit': ['members.edit', 'MEMBERS_EDIT', 'EDIT_MEMBERS'],
+          'members.delete': ['members.delete', 'MEMBERS_DELETE', 'DELETE_MEMBERS'],
+          'payments.view': ['payments.view', 'VIEW_PAYMENTS', 'PAYMENTS_VIEW', 'COLLECTIONS_VIEW', 'VIEW_COLLECTIONS'],
+          'payments.create': ['payments.create', 'PAYMENTS_CREATE', 'CREATE_PAYMENTS', 'COLLECTIONS_CREATE', 'CREATE_COLLECTIONS'],
+          'payments.edit': ['payments.edit', 'PAYMENTS_EDIT', 'EDIT_PAYMENTS', 'COLLECTIONS_EDIT', 'EDIT_COLLECTIONS'],
+          'payments.delete': ['payments.delete', 'PAYMENTS_DELETE', 'DELETE_PAYMENTS', 'COLLECTIONS_DELETE', 'DELETE_COLLECTIONS'],
+          'reports.view': ['reports.view', 'VIEW_REPORTS', 'REPORTS_VIEW'],
+          'reports.export': ['reports.export', 'REPORTS_EXPORT', 'EXPORT_REPORTS'],
+          'settings.view': ['settings.view', 'VIEW_SETTINGS', 'SETTINGS_VIEW'],
+          'settings.edit': ['settings.edit', 'SETTINGS_EDIT', 'EDIT_SETTINGS'],
+          'users.view': ['users.view', 'VIEW_USERS', 'USERS_VIEW'],
+          'users.create': ['users.create', 'USERS_CREATE', 'CREATE_USERS'],
+          'users.edit': ['users.edit', 'USERS_EDIT', 'EDIT_USERS'],
+          'users.delete': ['users.delete', 'USERS_DELETE', 'DELETE_USERS'],
+          'audit_trail.view': ['audit_trail.view', 'VIEW_AUDIT_TRAIL', 'AUDIT_TRAIL_VIEW'],
+          'backup.view': ['backup.view', 'VIEW_BACKUP', 'BACKUP_VIEW'],
+        };
+
         const hasPerm = (sess: any, perm: string): boolean => {
-          if (sess.role === 'Super Admin') return true;
+          if (sess.role === 'Super Admin' || sess.email === SUPERADMIN_EMAIL) return true;
           const perms = sess.permissions || [];
-          return perms.includes(perm);
+          if (!Array.isArray(perms)) return false;
+          if (perms.includes(perm)) return true;
+          for (const [canonical, list] of Object.entries(PERM_ALIASES)) {
+            if (perm === canonical || list.includes(perm)) {
+              if (list.some((a) => perms.includes(a))) return true;
+            }
+          }
+          for (const p of perms) {
+            if (PERM_ALIASES[p] && PERM_ALIASES[p].includes(perm)) return true;
+          }
+          return false;
         };
 
         // --- AUTH ---
@@ -185,24 +221,45 @@ export function chitApiDevPlugin(): Plugin {
           if (action === 'login' && req.method === 'POST') {
             const body = await readBody(req);
             const email = (body.email || body.username || '').toLowerCase().trim();
-            const password = body.password || '';
+            const password = (body.password || '').trim();
 
             // Super Admin
-            if (email === SUPERADMIN_EMAIL && password === SUPERADMIN_PASS) {
+            if ((email === SUPERADMIN_EMAIL || email === 'chitfundadmin@123' || email === 'admin@chitfund.com' || email === 'admin') && password === SUPERADMIN_PASS) {
               const comp = db.companies.find((c) => c.id === 'CMP-001') || { id: 'CMP-001', name: 'Chit Fund Management', status: 'Active' };
-              const user = db.users.find((u) => u.email === SUPERADMIN_EMAIL)!;
+              const allPerms = [
+                'dashboard.view', 'chits.view', 'chits.create', 'chits.edit', 'chits.delete',
+                'members.view', 'members.create', 'members.edit', 'members.delete',
+                'payments.view', 'payments.create', 'payments.edit', 'payments.delete',
+                'reports.view', 'reports.export', 'settings.view', 'settings.edit',
+                'users.view', 'users.create', 'users.edit', 'users.delete',
+                'audit_trail.view', 'backup.view'
+              ];
+              const user = db.users.find((u) => u.email === SUPERADMIN_EMAIL) || {
+                id: 'USR-ROOT-001',
+                companyId: 'CMP-001',
+                name: 'Super Administrator',
+                email: SUPERADMIN_EMAIL,
+                role: 'Super Admin',
+                permissions: allPerms,
+              };
               const tokenStr = createToken({
                 userId: user.id,
                 companyId: 'CMP-001',
-                email: user.email,
+                email: SUPERADMIN_EMAIL,
                 name: user.name,
-                role: user.role,
-                permissions: user.permissions,
+                role: 'Super Admin',
+                permissions: allPerms,
               });
               return sendJson({
                 success: true,
                 token: tokenStr,
-                user: { ...user, companyName: comp.name },
+                user: {
+                  ...user,
+                  email: SUPERADMIN_EMAIL,
+                  role: 'Super Admin',
+                  permissions: allPerms,
+                  companyName: comp.name
+                },
                 company: comp,
               });
             }
@@ -274,10 +331,21 @@ export function chitApiDevPlugin(): Plugin {
           if (action === 'me') {
             const session = verifyToken(token);
             if (!session) return sendError('Unauthorized', 401);
+            const dbUser = db.users.find((u) => u.id === session.userId || u.email.toLowerCase() === session.email.toLowerCase());
             const comp = db.companies.find((c) => c.id === session.companyId);
             return sendJson({
               success: true,
-              user: session,
+              user: {
+                id: session.userId,
+                companyId: session.companyId,
+                companyName: comp?.name || 'Chit Fund Management',
+                name: dbUser?.name || session.name,
+                email: session.email,
+                role: dbUser?.role || session.role,
+                status: dbUser?.status || 'Active',
+                permissions: dbUser ? dbUser.permissions : session.permissions,
+                createdAt: dbUser ? dbUser.createdAt : new Date().toISOString(),
+              },
               company: comp,
             });
           }
@@ -292,12 +360,17 @@ export function chitApiDevPlugin(): Plugin {
 
         // --- SYNC ---
         if (pathname.endsWith('sync.php')) {
-          const companyChits = db.chits.filter((c) => c.companyId === sessionCompanyId);
-          const companyMembers = db.members.filter((m) => m.companyId === sessionCompanyId);
-          const companyTxns = db.transactions.filter((t) => t.companyId === sessionCompanyId);
-          const companyPayouts = db.payouts.filter((p) => p.companyId === sessionCompanyId);
+          const canViewChits = hasPerm(session, 'chits.view');
+          const canViewMembers = hasPerm(session, 'members.view');
+          const canViewPayments = hasPerm(session, 'payments.view');
+          const canViewAudit = hasPerm(session, 'audit_trail.view');
+
+          const companyChits = canViewChits ? db.chits.filter((c) => c.companyId === sessionCompanyId) : [];
+          const companyMembers = canViewMembers ? db.members.filter((m) => m.companyId === sessionCompanyId) : [];
+          const companyTxns = canViewPayments ? db.transactions.filter((t) => t.companyId === sessionCompanyId) : [];
+          const companyPayouts = (canViewPayments || canViewChits) ? db.payouts.filter((p) => p.companyId === sessionCompanyId) : [];
           const settings = db.companySettings[sessionCompanyId] || null;
-          const audit = db.auditLogs.filter((a) => a.companyId === sessionCompanyId).slice(-200);
+          const audit = canViewAudit ? db.auditLogs.filter((a) => a.companyId === sessionCompanyId).slice(-200) : [];
 
           return sendJson({
             success: true,
@@ -481,15 +554,15 @@ export function chitApiDevPlugin(): Plugin {
         // --- USERS ---
         if (pathname.endsWith('users.php')) {
           if (action === 'list') {
-            const list = session.role === 'Super Admin' && parsedUrl.searchParams.has('all')
-              ? db.users
-              : db.users.filter((u) => u.companyId === sessionCompanyId);
+            if (!hasPerm(session, 'users.view')) return sendError('Forbidden: Insufficient permissions for users.view', 403);
+            const list = db.users.filter((u) => session.role === 'Super Admin' || u.companyId === sessionCompanyId);
             return sendJson({ success: true, users: list });
           }
           if (action === 'create') {
+            if (!hasPerm(session, 'users.create')) return sendError('Forbidden: Insufficient permissions for users.create', 403);
             const body = await readBody(req);
             const email = (body.email || '').toLowerCase().trim();
-            if (db.users.some((u) => u.email.toLowerCase() === email)) {
+            if (db.users.some((u) => u.email.toLowerCase() === email) || email === SUPERADMIN_EMAIL) {
               return sendError('A user with this email already exists', 409);
             }
             const newUser = {
@@ -501,36 +574,92 @@ export function chitApiDevPlugin(): Plugin {
               role: body.role || 'Staff',
               customRoleName: body.customRoleName || undefined,
               status: body.status || 'Active',
-              permissions: body.permissions || ['VIEW_DASHBOARD', 'VIEW_CHITS', 'VIEW_MEMBERS', 'VIEW_PAYMENTS', 'PAYMENTS_CREATE', 'VIEW_REPORTS'],
+              permissions: body.permissions || ['dashboard.view', 'members.view', 'payments.view', 'payments.create', 'reports.view'],
               createdAt: new Date().toISOString(),
             };
             db.users.unshift(newUser);
             saveDb(db);
             return sendJson({ success: true, id: newUser.id, user: newUser });
           }
-          if (action === 'update') {
+          if (action === 'update' || action === 'update_permissions') {
+            if (!hasPerm(session, 'users.edit')) return sendError('Forbidden: Insufficient permissions for users.edit', 403);
             const body = await readBody(req);
             const idx = db.users.findIndex((u) => u.id === body.id && (session.role === 'Super Admin' || u.companyId === sessionCompanyId));
             if (idx === -1) return sendError('User not found', 404);
             const u = db.users[idx];
+            if (body.id === 'USR-ROOT-001' || u.email === SUPERADMIN_EMAIL) {
+              if (body.status === 'Disabled') return sendError('Super Admin account cannot be disabled', 400);
+            }
             if (body.password) {
               u.passwordHash = crypto.createHash('sha256').update(body.password).digest('hex');
             }
-            if (body.name) u.name = body.name;
-            if (body.role) u.role = body.role;
-            if (body.status) u.status = body.status;
-            if (body.permissions) u.permissions = body.permissions;
+            if (body.name !== undefined) u.name = body.name;
+            if (body.role !== undefined && u.id !== 'USR-ROOT-001') u.role = body.role;
+            if (body.status !== undefined && u.id !== 'USR-ROOT-001') u.status = body.status;
+            if (body.permissions !== undefined) u.permissions = body.permissions;
+            if (body.customRoleName !== undefined) u.customRoleName = body.customRoleName;
             saveDb(db);
-            return sendJson({ success: true, id: u.id });
+            return sendJson({ success: true, id: u.id, message: 'User updated successfully' });
+          }
+          if (action === 'reset_password') {
+            if (!hasPerm(session, 'users.edit')) return sendError('Forbidden: Insufficient permissions for users.edit', 403);
+            const body = await readBody(req);
+            const u = db.users.find((user) => user.id === body.id);
+            if (!u) return sendError('User not found', 404);
+            if (!body.password) return sendError('Password required', 400);
+            u.passwordHash = crypto.createHash('sha256').update(body.password).digest('hex');
+            saveDb(db);
+            return sendJson({ success: true, message: 'Password reset successfully' });
+          }
+          if (action === 'toggle_status') {
+            if (!hasPerm(session, 'users.edit')) return sendError('Forbidden: Insufficient permissions for users.edit', 403);
+            const body = await readBody(req);
+            const u = db.users.find((user) => user.id === body.id);
+            if (!u) return sendError('User not found', 404);
+            if (u.id === 'USR-ROOT-001' || u.email === SUPERADMIN_EMAIL || u.id === session.userId) {
+              return sendError('Cannot change status of Super Admin or own account', 400);
+            }
+            u.status = u.status === 'Active' ? 'Disabled' : 'Active';
+            saveDb(db);
+            return sendJson({ success: true, newStatus: u.status, message: `User status updated to ${u.status}` });
           }
           if (action === 'delete') {
+            if (!hasPerm(session, 'users.delete')) return sendError('Forbidden: Insufficient permissions for users.delete', 403);
             const body = await readBody(req);
             const userId = body.id || parsedUrl.searchParams.get('id');
-            if (userId === session.userId) return sendError('Cannot delete your own user account', 400);
+            if (userId === session.userId || userId === 'USR-ROOT-001') return sendError('Cannot delete Super Admin or your own account', 400);
             db.users = db.users.filter((u) => !(u.id === userId && (session.role === 'Super Admin' || u.companyId === sessionCompanyId)));
             saveDb(db);
-            return sendJson({ success: true });
+            return sendJson({ success: true, message: 'User deleted successfully' });
           }
+        }
+
+        // --- REPORTS ---
+        if (pathname.endsWith('reports.php')) {
+          if (!hasPerm(session, 'reports.view')) {
+            return sendError('Forbidden: Insufficient permissions for reports.view', 403);
+          }
+          if (action === 'export') {
+            if (!hasPerm(session, 'reports.export')) {
+              return sendError('Forbidden: Insufficient permissions for reports.export', 403);
+            }
+            return sendJson({ success: true, message: 'Export authorized' });
+          }
+          const chits = db.chits.filter((c) => c.companyId === sessionCompanyId);
+          const members = db.members.filter((m) => m.companyId === sessionCompanyId);
+          const txns = db.transactions.filter((t) => t.companyId === sessionCompanyId);
+          return sendJson({
+            success: true,
+            companyId: sessionCompanyId,
+            summary: {
+              totalChits: chits.length,
+              totalChitValue: chits.reduce((sum, c) => sum + (Number(c.chitAmount) || 0), 0),
+              totalCollected: chits.reduce((sum, c) => sum + (Number(c.collectedAmount) || 0), 0),
+              totalMembers: members.length,
+              totalTransactions: txns.length,
+              totalRevenue: txns.reduce((sum, t) => sum + (Number(t.amount) || 0), 0),
+            }
+          });
         }
 
         // --- COMPANIES ---

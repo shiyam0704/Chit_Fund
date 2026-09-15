@@ -506,7 +506,7 @@ export const UserManagementTable: React.FC = () => {
     });
   };
 
-  const handleEditSubmit = (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
     setEditFormError('');
@@ -521,7 +521,7 @@ export const UserManagementTable: React.FC = () => {
         ? [...ALL_PERMISSIONS]
         : Array.from(editPermissions);
 
-    const result = updateUser(editingUser.id, {
+    const result = await updateUser(editingUser.id, {
       name: editForm.name.trim(),
       email: editForm.email.trim(),
       role: editForm.role,
@@ -555,10 +555,10 @@ export const UserManagementTable: React.FC = () => {
     });
   };
 
-  const handleSaveModalPermissions = () => {
+  const handleSaveModalPermissions = async () => {
     if (!permissionsUser) return;
     const permsArray = Array.from(modalPermissions);
-    const result = updateUserPermissions(permissionsUser.id, permsArray);
+    const result = await updateUserPermissions(permissionsUser.id, permsArray);
     if (result.success) {
       setPermissionsUser(null);
       showNotification(`Permissions updated for "${permissionsUser.name}".`);
@@ -602,12 +602,12 @@ export const UserManagementTable: React.FC = () => {
   // ---------------------------------------------------------------------------
   // HANDLERS: TOGGLE STATUS
   // ---------------------------------------------------------------------------
-  const handleToggleStatus = (u: UserAccount) => {
+  const handleToggleStatus = async (u: UserAccount) => {
     if (u.id === ROOT_SUPERADMIN_ID || u.role === 'Super Admin') {
       showNotification('The Super Admin account cannot be disabled.');
       return;
     }
-    const result = toggleUserStatus(u.id);
+    const result = await toggleUserStatus(u.id);
     if (result.success) {
       const nextStatus = u.status === 'Active' ? 'disabled' : 'enabled';
       showNotification(`User "${u.name}" is now ${nextStatus}.`);
@@ -619,10 +619,10 @@ export const UserManagementTable: React.FC = () => {
   // ---------------------------------------------------------------------------
   // HANDLERS: DELETE USER
   // ---------------------------------------------------------------------------
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!deletingUser) return;
     const userName = deletingUser.name;
-    const result = deleteUser(deletingUser.id);
+    const result = await deleteUser(deletingUser.id);
     if (result.success) {
       setDeletingUser(null);
       showNotification(`User "${userName}" was deleted successfully.`);

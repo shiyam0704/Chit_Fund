@@ -10,6 +10,8 @@ import {
   ROOT_SUPERADMIN_ID,
   ADMIN_CREDENTIALS,
   createDefaultSuperAdminUser,
+  // Bidirectional permission alias matcher
+  matchPermission,
 } from '../permissions';
 import { Company } from '@/types';
 import { logActivity } from '@/shared/services/auditService';
@@ -28,7 +30,6 @@ import {
 } from '../utils/authStorage';
 import {
   getStoredCompanies,
-  saveStoredCompanies,
   registerCompany,
   createNewCompany,
   getCompanyById,
@@ -37,7 +38,6 @@ import {
   createDefaultCompany,
 } from '../utils/companyStorage';
 import {
-  verifyPassword,
   generateStaffActivationCredential,
   generateCredentialFromVerifier,
   verifyAndParseActivationCredential,
@@ -74,6 +74,7 @@ export interface CreateUserData {
 export interface UpdateUserData {
   name?: string;
   email?: string;
+  password?: string;
   companyId?: string;
   role?: UserRole;
   customRoleName?: string;
@@ -109,52 +110,148 @@ interface AuthContextType {
   updateRoleDefaults: (role: UserRole, permissions: Permission[]) => { success: boolean; message?: string };
   // User Management
   createUser: (data: CreateUserData) => Promise<{ success: boolean; message?: string; user?: UserAccount; token?: string; chitUserFile?: ChitUserFile }>;
-  updateUser: (id: string, data: UpdateUserData) => { success: boolean; message?: string };
-  updateUserPermissions: (id: string, permissions: Permission[]) => { success: boolean; message?: string };
+  updateUser: (id: string, data: UpdateUserData) => Promise<{ success: boolean; message?: string }>;
+  updateUserPermissions: (id: string, permissions: Permission[]) => Promise<{ success: boolean; message?: string }>;
   resetUserPassword: (id: string, newPassword: string) => Promise<{ success: boolean; message?: string }>;
-  toggleUserStatus: (id: string) => { success: boolean; message?: string };
-  deleteUser: (id: string) => { success: boolean; message?: string };
+  toggleUserStatus: (id: string) => Promise<{ success: boolean; message?: string }>;
+  deleteUser: (id: string) => Promise<{ success: boolean; message?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [users, setUsers] = useState<UserAccount[]>([]);
+  const [session, setSession] = useState<AuthSession>(getStoredAuthSession);
+  const [activeUser, setActiveUser] = useState<UserAccount | null>(null);
+  const [companies, setCompanies] = useState<Company[]>(getStoredCompanies);
+
+  const fetchUsers = useCallback(async () => {
+    try {
+      const res = await apiFetch<{ success: boolean; users: UserAccount[] }>('users.php?action=list');
+      if (res?.success && Array.isArray(res.users)) {
+        setUsers(res.users);
+      }
+    } catch {
+      // Users list is only accessible to users with users.view / Super Admin
+    }
+  }, []);
+
+  // Initialize and verify session on initial mount
   useEffect(() => {
     initializeAuthStorage();
     initializeLocalApplication();
-  }, []);
 
-  const [users, setUsers] = useState<UserAccount[]>(getStoredUsers);
-  const [session, setSession] = useState<AuthSession>(getStoredAuthSession);
-  const [companies, setCompanies] = useState<Company[]>(getStoredCompanies);
+    const verifySession = async () => {
+      const token = getAuthToken();
+      if (!token) {
+        if (session.isAuthenticated) {
+          clearStoredAuthSession();
+          setSession(getStoredAuthSession());
+          setActiveUser(null);
+        }
+        return;
+      }
 
-  // Sync users, session, and companies across tabs/windows
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === USERS_STORAGE_KEY) {
-        setUsers(getStoredUsers());
-      }
-      if (e.key === AUTH_STORAGE_KEY) {
-        setSession(getStoredAuthSession());
-      }
-      if (e.key === 'chitfund_companies') {
-        setCompanies(getStoredCompanies());
+      try {
+        const res = await apiFetch<{
+          success: boolean;
+          user: any;
+          company: any;
+        }>('auth.php?action=me');
+
+        if (res?.success && res.user) {
+          const u = res.user;
+          const normalized: UserAccount = {
+            id: u.id,
+            companyId: u.companyId,
+            companyName: res.company?.name || u.companyName || 'Chit Fund Management',
+            name: u.name,
+            email: u.email,
+            role: u.role,
+            customRoleName: u.customRoleName,
+            status: u.status || 'Active',
+            permissions: Array.isArray(u.permissions) ? u.permissions : [],
+            createdAt: u.createdAt || new Date().toISOString(),
+          };
+          setActiveUser(normalized);
+
+          const newSess: AuthSession = {
+            isAuthenticated: true,
+            userId: u.id,
+            email: u.email,
+            companyId: u.companyId,
+            companyName: res.company?.name || u.companyName || 'Chit Fund Management',
+            role: u.role,
+          };
+          saveStoredAuthSession(newSess);
+          setSession(newSess);
+
+          if (u.role === 'Super Admin' || (u.permissions && (u.permissions.includes('users.view') || u.permissions.includes('VIEW_USERS')))) {
+            fetchUsers();
+          }
+        }
+      } catch (err) {
+        console.warn('Session check failed, clearing invalid session:', err);
+        clearAuthToken();
+        clearStoredAuthSession();
+        setSession({
+          isAuthenticated: false,
+          userId: null,
+          email: null,
+          companyId: null,
+          companyName: null,
+          role: null,
+        });
+        setActiveUser(null);
       }
     };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+
+    verifySession();
+  }, [fetchUsers]);
+
+  // Listen for unauthorized 401 events dispatched by apiClient
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      clearAuthToken();
+      clearStoredAuthSession();
+      setSession({
+        isAuthenticated: false,
+        userId: null,
+        email: null,
+        companyId: null,
+        companyName: null,
+        role: null,
+      });
+      setActiveUser(null);
+    };
+    window.addEventListener('chitfund_auth_unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('chitfund_auth_unauthorized', handleUnauthorized);
   }, []);
 
   // Resolve current active UserAccount
   const currentUser = useMemo(() => {
     if (!session.isAuthenticated) return null;
-    const found =
-      users.find((u) => u.id === session.userId) ||
-      users.find((u) => u.email.toLowerCase() === (session.email || '').toLowerCase()) ||
-      users.find((u) => u.role === 'Super Admin') ||
-      users[0];
-    return found || null;
-  }, [session, users]);
+    if (activeUser && (activeUser.id === session.userId || activeUser.email.toLowerCase() === (session.email || '').toLowerCase())) {
+      return activeUser;
+    }
+    const found = users.find((u) => u.id === session.userId || u.email.toLowerCase() === (session.email || '').toLowerCase());
+    if (found) return found;
+
+    if (session.userId) {
+      return {
+        id: session.userId,
+        companyId: session.companyId || DEFAULT_COMPANY_ID,
+        companyName: session.companyName || DEFAULT_COMPANY_NAME,
+        name: session.email ? session.email.split('@')[0] : 'User',
+        email: session.email || '',
+        role: (session.role as UserRole) || 'Staff',
+        status: 'Active' as UserStatus,
+        permissions: session.role === 'Super Admin' ? [...ALL_PERMISSIONS] : [],
+        createdAt: '2026-01-01T00:00:00.000Z',
+      };
+    }
+    return null;
+  }, [session, activeUser, users]);
 
   // Active Company ID & Name
   const companyId = useMemo(() => {
@@ -170,13 +267,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [companies, companyId, session.companyName]);
 
   const companyName = activeCompany.name;
-
-  // If active user is disabled while session is active, force sign out
-  useEffect(() => {
-    if (currentUser && currentUser.status === 'Disabled') {
-      logout();
-    }
-  }, [currentUser]);
 
   // ---------------------------------------------------------------------------
   // COMPANY SWITCHING & CREATION
@@ -194,7 +284,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       saveStoredAuthSession(newSession);
       setSession(newSession);
 
-      // Trigger cross-context reactive company update
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('chitfund_company_changed', { detail: target.id }));
       }
@@ -224,7 +313,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Please enter both username/email and password.' };
     }
 
-    // 1. Attempt Central Database Authentication via API
     try {
       const apiRes = await apiFetch<{
         success: boolean;
@@ -247,14 +335,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           userId: apiUser.id,
           email: apiUser.email,
           companyId: apiUser.companyId,
-          companyName: apiCompany.name,
+          companyName: apiCompany?.name || 'Chit Fund Management',
           role: apiUser.role,
         };
 
         saveStoredAuthSession(newSession);
         setSession(newSession);
 
-        // Keep user and company updated locally for offline access
+        const normalizedUser: UserAccount = {
+          id: apiUser.id,
+          companyId: apiUser.companyId,
+          companyName: apiCompany?.name || 'Chit Fund Management',
+          name: apiUser.name,
+          email: apiUser.email,
+          role: apiUser.role,
+          customRoleName: apiUser.customRoleName,
+          status: apiUser.status || 'Active',
+          permissions: Array.isArray(apiUser.permissions) ? apiUser.permissions : [],
+          createdAt: apiUser.createdAt || new Date().toISOString(),
+        };
+
+        setActiveUser(normalizedUser);
+
         registerCompany({
           id: apiCompany.id,
           name: apiCompany.name,
@@ -263,20 +365,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         setCompanies(getStoredCompanies());
 
-        const currentUsersList = getStoredUsers();
-        const normalizedApiUser: UserAccount = {
-          ...apiUser,
-          createdAt: apiUser.createdAt || new Date().toISOString(),
-          permissions: Array.isArray(apiUser.permissions) ? apiUser.permissions : [],
-        };
-        const updatedUsers = currentUsersList.some((u) => u.id === normalizedApiUser.id)
-          ? currentUsersList.map((u) => (u.id === normalizedApiUser.id ? { ...u, ...normalizedApiUser } : u))
-          : [normalizedApiUser, ...currentUsersList];
-        saveStoredUsers(updatedUsers);
-        setUsers(updatedUsers);
+        // Fetch users roster if authorized
+        if (apiUser.role === 'Super Admin' || (apiUser.permissions && (apiUser.permissions.includes('users.view') || apiUser.permissions.includes('VIEW_USERS')))) {
+          fetchUsers();
+        }
 
         if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('chitfund_company_changed', { detail: normalizedApiUser.companyId }));
+          window.dispatchEvent(new CustomEvent('chitfund_company_changed', { detail: normalizedUser.companyId }));
         }
 
         logActivity({
@@ -286,154 +381,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           userRole: apiUser.role,
           action: 'LOGIN_SUCCESS',
           module: 'Authentication',
-          description: `User "${apiUser.name}" (${apiUser.role}) logged in to company "${apiCompany.name}" via central database`,
+          description: `User "${apiUser.name}" (${apiUser.role}) logged in successfully`,
           status: 'Success',
         });
 
-        return { success: true, user: apiUser };
+        return { success: true, user: normalizedUser };
       }
+
+      return { success: false, message: 'Invalid username/email or password.' };
     } catch (apiErr: any) {
-      const errMsg = apiErr?.message || '';
-      if (errMsg.includes('Invalid email or password') || errMsg.includes('suspended') || errMsg.includes('deactivated')) {
-        return { success: false, message: errMsg };
-      }
-      console.warn('Central database login failed, checking local credentials fallback', apiErr);
+      const errMsg = apiErr?.message || 'Invalid username/email or password.';
+      return { success: false, message: errMsg };
     }
-
-    // 2. Fallback to LocalStorage Credentials
-    initializeAuthStorage();
-    initializeLocalApplication();
-
-    const currentUsersList = getStoredUsers();
-
-    const isSuperAdminAlias =
-      cleanInput === 'chitfundadmin@gmail.com' ||
-      cleanInput === ADMIN_CREDENTIALS.email.trim().toLowerCase() ||
-      cleanInput === 'chitfundadmin@123' ||
-      cleanInput === 'admin@chitfund.com' ||
-      cleanInput === 'admin' ||
-      cleanInput === 'chitfundadmin' ||
-      cleanInput === 'super admin' ||
-      cleanInput === 'superadmin' ||
-      cleanInput === 'adminchit@123';
-
-    let matchedUser = currentUsersList.find(
-      (u) => (u.email || '').trim().toLowerCase() === cleanInput || (u.name || '').trim().toLowerCase() === cleanInput
-    );
-
-    if (!matchedUser && isSuperAdminAlias) {
-      matchedUser =
-        currentUsersList.find((u) => u.role === 'Super Admin' || u.id === ROOT_SUPERADMIN_ID) ||
-        createDefaultSuperAdminUser();
-    }
-
-    if (!matchedUser) {
-      logActivity({
-        userId: 'unknown',
-        userName: cleanInput || 'Unknown User',
-        userRole: 'Guest',
-        action: 'LOGIN_FAILED',
-        module: 'Authentication',
-        description: `Failed login attempt for username "${cleanInput}"`,
-        status: 'Failed',
-        failureReason: 'User not found',
-      });
-      return { success: false, message: 'Invalid username/email or password.' };
-    }
-
-    if (matchedUser.status === 'Disabled') {
-      logActivity({
-        companyId: matchedUser.companyId,
-        userId: matchedUser.id,
-        userName: matchedUser.name,
-        userRole: matchedUser.role,
-        action: 'LOGIN_FAILED',
-        module: 'Authentication',
-        description: `Failed login attempt for disabled user "${matchedUser.name}" (${matchedUser.email})`,
-        status: 'Failed',
-        failureReason: 'Account Disabled',
-      });
-      return {
-        success: false,
-        message: 'Your account is disabled. Please contact the administrator.',
-      };
-    }
-
-    // Verify Password
-    let isPasswordCorrect = false;
-    const isSuperAdminUser = matchedUser.role === 'Super Admin' || matchedUser.id === ROOT_SUPERADMIN_ID;
-
-    // 1. Web Crypto Salted PBKDF2 hash verification
-    if (matchedUser.salt && matchedUser.passwordVerifier) {
-      isPasswordCorrect = await verifyPassword(cleanPassword, matchedUser.salt, matchedUser.passwordVerifier);
-    }
-
-    // 2. Direct password fallback (for default or legacy admin accounts)
-    if (!isPasswordCorrect && matchedUser.password) {
-      isPasswordCorrect = matchedUser.password.trim() === cleanPassword;
-    }
-
-    // 3. Super Admin default password fallback
-    if (!isPasswordCorrect && isSuperAdminUser) {
-      isPasswordCorrect = cleanPassword === ADMIN_CREDENTIALS.password.trim();
-    }
-
-    if (!isPasswordCorrect) {
-      logActivity({
-        companyId: matchedUser.companyId,
-        userId: matchedUser.id,
-        userName: matchedUser.name,
-        userRole: matchedUser.role,
-        action: 'LOGIN_FAILED',
-        module: 'Authentication',
-        description: `Failed password verification for user "${matchedUser.name}"`,
-        status: 'Failed',
-        failureReason: 'Invalid Password',
-      });
-      return { success: false, message: 'Invalid username/email or password.' };
-    }
-
-    // Determine Company Context
-    const targetCompanyId = matchedUser.companyId || DEFAULT_COMPANY_ID;
-    const companyObj = getCompanyById(targetCompanyId) || createDefaultCompany();
-
-    const newSession: AuthSession = {
-      isAuthenticated: true,
-      userId: matchedUser.id,
-      email: matchedUser.email,
-      companyId: targetCompanyId,
-      companyName: companyObj.name,
-      role: matchedUser.role,
-    };
-
-    const finalUsersList = currentUsersList.some(
-      (u) => u.id === matchedUser.id || u.email.toLowerCase() === matchedUser.email.toLowerCase()
-    )
-      ? currentUsersList
-      : [matchedUser, ...currentUsersList];
-
-    saveStoredUsers(finalUsersList);
-    saveStoredAuthSession(newSession);
-    setSession(newSession);
-    setUsers(finalUsersList);
-
-    // Notify ChitContext of company switch
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('chitfund_company_changed', { detail: targetCompanyId }));
-    }
-
-    logActivity({
-      companyId: targetCompanyId,
-      userId: matchedUser.id,
-      userName: matchedUser.name,
-      userRole: matchedUser.role,
-      action: 'LOGIN_SUCCESS',
-      module: 'Authentication',
-      description: `User "${matchedUser.name}" (${matchedUser.role}) logged in to company "${companyObj.name}" successfully`,
-      status: 'Success',
-    });
-
-    return { success: true, user: matchedUser };
   };
 
   const logout = useCallback(() => {
@@ -444,12 +403,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       userRole: currentUser?.role || 'Super Admin',
       action: 'LOGOUT',
       module: 'Authentication',
-      description: `User "${currentUser?.name || session.email || 'User'}" logged out of company "${companyName}"`,
+      description: `User "${currentUser?.name || session.email || 'User'}" logged out`,
       status: 'Success',
     });
 
     clearStoredAuthSession();
     clearAuthToken();
+    setActiveUser(null);
+    setUsers([]);
     setSession({
       isAuthenticated: false,
       userId: null,
@@ -458,7 +419,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       companyName: null,
       role: null,
     });
-  }, [currentUser, session, companyId, companyName]);
+  }, [currentUser, session, companyId]);
 
   // ---------------------------------------------------------------------------
   // CROSS-DEVICE ACCOUNT ACTIVATION FLOW
@@ -476,8 +437,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const payload = verification.payload;
-
-      // Register company locally so this device knows this company
       registerCompany({
         id: payload.companyId,
         name: payload.companyName,
@@ -486,54 +445,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       setCompanies(getStoredCompanies());
 
-      // Prepare local user account
-      const currentList = getStoredUsers();
-      const existingIndex = currentList.findIndex(
-        (u) => u.id === payload.userId || u.email.toLowerCase() === payload.email.toLowerCase()
-      );
-
-      const importedUser: UserAccount = {
-        id: payload.userId,
-        companyId: payload.companyId,
-        companyName: payload.companyName,
-        name: payload.name,
-        email: payload.email,
-        salt: payload.salt,
-        passwordVerifier: payload.verifier,
-        role: payload.role,
-        customRoleName: payload.customRoleName,
-        status: payload.status,
-        permissions: payload.permissions,
-        createdAt: payload.issuedAt,
-        createdBy: 'Cross-Device Invitation',
-      };
-
-      let updatedList: UserAccount[];
-      if (existingIndex >= 0) {
-        updatedList = [...currentList];
-        updatedList[existingIndex] = { ...currentList[existingIndex], ...importedUser };
-      } else {
-        updatedList = [...currentList, importedUser];
-      }
-
-      saveStoredUsers(updatedList);
-      setUsers(updatedList);
-
-      logActivity({
-        companyId: payload.companyId,
-        userId: payload.userId,
-        userName: payload.name,
-        userRole: payload.role,
-        action: 'CREATE',
-        module: 'Authentication',
-        description: `Staff account "${payload.name}" (${payload.role}) imported and activated on this device for ${payload.companyName}`,
-        status: 'Success',
-      });
-
       return {
         success: true,
-        message: `Account for ${payload.name} (${payload.companyName}) activated successfully! You can now log in.`,
-        user: importedUser,
+        message: `Account for ${payload.name} (${payload.companyName}) verified successfully! You can now log in with your credentials.`,
       };
     } catch (err: any) {
       return {
@@ -543,9 +457,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  /**
-   * Generates or re-exports an activation token and .chituser file for an existing user
-   */
   const generateUserActivationCredential = async (
     userId: string,
     passwordPlaintext?: string
@@ -558,7 +469,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const targetCompany = getCompanyById(targetUser.companyId) || activeCompany;
 
     try {
-      // Invalidate existing activation code if present
       if (targetUser.activationCode) {
         invalidateActivationCode(targetUser.activationCode);
       }
@@ -577,26 +487,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           passwordPlaintext,
         });
 
-        // Update stored user with new verifier, activationToken, and short activationCode
-        const updated = users.map((u) =>
-          u.id === userId
-            ? {
-                ...u,
-                salt: cred.salt,
-                passwordVerifier: cred.verifier,
-                activationToken: cred.token,
-                activationCode: cred.activationCode,
-                password: passwordPlaintext,
-              }
-            : u
-        );
-        setUsers(updated);
-        saveStoredUsers(updated);
-
         return { token: cred.token, chitUserFile: cred.chitUserFile, activationCode: cred.activationCode };
       }
 
-      // If already has salt & verifier, generate from existing verifier
       if (targetUser.salt && targetUser.passwordVerifier) {
         const cred = await generateCredentialFromVerifier({
           userId: targetUser.id,
@@ -612,50 +505,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           verifier: targetUser.passwordVerifier,
         });
 
-        const updated = users.map((u) =>
-          u.id === userId
-            ? {
-                ...u,
-                activationToken: cred.token,
-                activationCode: cred.activationCode,
-              }
-            : u
-        );
-        setUsers(updated);
-        saveStoredUsers(updated);
-
-        return { token: cred.token, chitUserFile: cred.chitUserFile, activationCode: cred.activationCode };
-      }
-
-      // Fallback: If user has local plaintext password
-      if (targetUser.password) {
-        const cred = await generateStaffActivationCredential({
-          userId: targetUser.id,
-          companyId: targetUser.companyId,
-          companyName: targetCompany.name,
-          email: targetUser.email,
-          name: targetUser.name,
-          role: targetUser.role,
-          customRoleName: targetUser.customRoleName,
-          status: targetUser.status,
-          permissions: targetUser.permissions,
-          passwordPlaintext: targetUser.password,
-        });
-
-        const updated = users.map((u) =>
-          u.id === userId
-            ? {
-                ...u,
-                salt: cred.salt,
-                passwordVerifier: cred.verifier,
-                activationToken: cred.token,
-                activationCode: cred.activationCode,
-              }
-            : u
-        );
-        setUsers(updated);
-        saveStoredUsers(updated);
-
         return { token: cred.token, chitUserFile: cred.chitUserFile, activationCode: cred.activationCode };
       }
 
@@ -669,37 +518,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // RBAC PERMISSION HELPERS
   // ---------------------------------------------------------------------------
   const isSuperAdmin = useCallback((): boolean => {
-    return currentUser?.role === 'Super Admin';
-  }, [currentUser]);
+    return currentUser?.role === 'Super Admin' || session.role === 'Super Admin';
+  }, [currentUser, session.role]);
 
   const hasPermission = useCallback(
     (permission: Permission | string): boolean => {
       if (!currentUser) return false;
-      if (currentUser.role === 'Super Admin') return true;
+      if (currentUser.role === 'Super Admin' || session.role === 'Super Admin') return true;
       if (currentUser.status === 'Disabled') return false;
-      return currentUser.permissions.includes(permission as Permission);
+      return matchPermission(currentUser.permissions, String(permission));
     },
-    [currentUser]
+    [currentUser, session.role]
   );
 
   const hasAnyPermission = useCallback(
     (permissions: (Permission | string)[]): boolean => {
       if (!currentUser) return false;
-      if (currentUser.role === 'Super Admin') return true;
+      if (currentUser.role === 'Super Admin' || session.role === 'Super Admin') return true;
       if (currentUser.status === 'Disabled') return false;
-      return permissions.some((p) => currentUser.permissions.includes(p as Permission));
+      return permissions.some((p) => matchPermission(currentUser.permissions, String(p)));
     },
-    [currentUser]
+    [currentUser, session.role]
   );
 
   const hasAllPermissions = useCallback(
     (permissions: (Permission | string)[]): boolean => {
       if (!currentUser) return false;
-      if (currentUser.role === 'Super Admin') return true;
+      if (currentUser.role === 'Super Admin' || session.role === 'Super Admin') return true;
       if (currentUser.status === 'Disabled') return false;
-      return permissions.every((p) => currentUser.permissions.includes(p as Permission));
+      return permissions.every((p) => matchPermission(currentUser.permissions, String(p)));
     },
-    [currentUser]
+    [currentUser, session.role]
   );
 
   // ---------------------------------------------------------------------------
@@ -711,7 +560,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const appData = getAppData();
       const custom = appData.roleDefaults?.[role];
       if (custom && Array.isArray(custom)) return custom;
-    } catch (e) {
+    } catch {
       // fallback
     }
     return DEFAULT_ROLE_PERMISSIONS[role] || [PERMISSIONS.DASHBOARD_VIEW];
@@ -728,15 +577,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         appData.roleDefaults[role] = permissions;
         saveAppData(appData);
         return { success: true };
-      } catch (err) {
-        return { success: false, message: 'Failed to update role defaults.' };
+      } catch (err: any) {
+        return { success: false, message: err.message };
       }
     },
     [isSuperAdmin]
   );
 
   // ---------------------------------------------------------------------------
-  // USER MANAGEMENT ACTIONS
+  // USER MANAGEMENT (CENTRAL PERSISTENT BACKEND)
   // ---------------------------------------------------------------------------
   const createUser = async (
     data: CreateUserData
@@ -761,12 +610,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Password must be at least 4 characters long.' };
     }
 
-    // Check duplicate email
-    const exists = users.some((u) => u.email.toLowerCase() === trimmedEmail.toLowerCase());
-    if (exists) {
-      return { success: false, message: 'A user with this Email/Username already exists.' };
-    }
-
     const role = data.role || 'Staff';
     let assignedPermissions: Permission[] = [];
     if (role === 'Super Admin') {
@@ -778,55 +621,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const targetCompanyId = data.companyId || companyId || DEFAULT_COMPANY_ID;
-    const targetComp = getCompanyById(targetCompanyId) || activeCompany;
 
-    const newUserId = `USR-${Date.now()}-${Math.floor(Math.random() * 1000)
-      .toString()
-      .padStart(3, '0')}`;
-
-    // Generate tamper-proof portable credential
-    const cred = await generateStaffActivationCredential({
-      userId: newUserId,
-      companyId: targetCompanyId,
-      companyName: targetComp.name,
-      email: trimmedEmail,
-      name: trimmedName,
-      role,
-      customRoleName: data.customRoleName?.trim(),
-      status: data.status || 'Active',
-      permissions: assignedPermissions,
-      passwordPlaintext: data.password,
-    });
-
-    const newUser: UserAccount = {
-      id: newUserId,
-      companyId: targetCompanyId,
-      companyName: targetComp.name,
-      name: trimmedName,
-      email: trimmedEmail,
-      password: data.password,
-      salt: cred.salt,
-      passwordVerifier: cred.verifier,
-      activationToken: cred.token,
-      activationCode: cred.activationCode,
-      role,
-      customRoleName: data.customRoleName?.trim(),
-      status: data.status || 'Active',
-      permissions: assignedPermissions,
-      createdAt: new Date().toISOString(),
-      createdBy: currentUser?.name || 'Admin',
-    };
-
-    const updated = [...users, newUser];
-    setUsers(updated);
-    saveStoredUsers(updated);
-
-    // Sync user creation to central backend database so user can login from other computers
     try {
-      await apiFetch('users.php?action=create', {
+      const res = await apiFetch<{
+        success: boolean;
+        id: string;
+        user: UserAccount;
+        message?: string;
+      }>('users.php?action=create', {
         method: 'POST',
         body: JSON.stringify({
-          id: newUserId,
           companyId: targetCompanyId,
           name: trimmedName,
           email: trimmedEmail,
@@ -835,164 +639,120 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           customRoleName: data.customRoleName?.trim(),
           status: data.status || 'Active',
           permissions: assignedPermissions,
-          activationCode: cred.activationCode,
-          activationToken: cred.token,
-          chitUserFile: cred.chitUserFile,
         }),
       });
-    } catch (apiErr) {
-      console.warn('Backend user creation notification', apiErr);
+
+      if (res?.success && res.user) {
+        await fetchUsers();
+
+        logActivity({
+          companyId: targetCompanyId,
+          userId: currentUser?.id,
+          userName: currentUser?.name,
+          userRole: currentUser?.role,
+          action: 'CREATE',
+          module: 'Users',
+          recordId: res.id,
+          recordName: trimmedName,
+          description: `Created new ${role} user account "${trimmedName}" (${trimmedEmail})`,
+          status: 'Success',
+        });
+
+        return {
+          success: true,
+          user: res.user,
+        };
+      }
+
+      return { success: false, message: res?.message || 'Failed to create user.' };
+    } catch (apiErr: any) {
+      return { success: false, message: apiErr.message || 'Failed to create user account on central database.' };
     }
-
-    logActivity({
-      companyId: targetCompanyId,
-      userId: currentUser?.id,
-      userName: currentUser?.name,
-      userRole: currentUser?.role,
-      action: 'CREATE',
-      module: 'Users',
-      recordId: newUser.id,
-      recordName: newUser.name,
-      description: `Created new ${newUser.role} user account "${newUser.name}" (${newUser.email}) for company ${targetComp.name}`,
-      afterData: {
-        id: newUser.id,
-        name: newUser.name,
-        email: newUser.email,
-        role: newUser.role,
-        companyId: targetCompanyId,
-        status: newUser.status,
-      },
-      status: 'Success',
-    });
-
-    return {
-      success: true,
-      user: newUser,
-      token: cred.token,
-      chitUserFile: cred.chitUserFile,
-    };
   };
 
-  const updateUser = (id: string, data: UpdateUserData): { success: boolean; message?: string } => {
+  const updateUser = async (id: string, data: UpdateUserData): Promise<{ success: boolean; message?: string }> => {
     if (!isSuperAdmin() && !hasPermission(PERMISSIONS.USERS_EDIT)) {
       return { success: false, message: 'You do not have permission to edit user accounts.' };
     }
 
     const targetUser = users.find((u) => u.id === id);
-    if (!targetUser) {
+    if (!targetUser && id !== 'USR-ROOT-001') {
       return { success: false, message: 'User not found.' };
     }
 
-    if (data.email) {
-      const trimmedEmail = data.email.trim();
-      const duplicate = users.some(
-        (u) => u.id !== id && u.email.toLowerCase() === trimmedEmail.toLowerCase()
-      );
-      if (duplicate) {
-        return { success: false, message: 'Another user is already using this Email/Username.' };
-      }
-    }
-
-    // Super Admin protection
-    if (targetUser.id === ROOT_SUPERADMIN_ID || targetUser.role === 'Super Admin') {
-      if (data.status === 'Disabled') {
-        return { success: false, message: 'The primary Super Admin account cannot be disabled.' };
-      }
-      if (data.role && data.role !== 'Super Admin') {
-        return { success: false, message: 'The primary Super Admin account role cannot be changed.' };
-      }
-    }
-
-    let updatedUserObj: UserAccount | null = null;
-    const updated = users.map((u) => {
-      if (u.id !== id) return u;
-      const isTargetSuperAdmin = u.id === ROOT_SUPERADMIN_ID || u.role === 'Super Admin';
-      const updatedPermissions = isTargetSuperAdmin
-        ? [...ALL_PERMISSIONS]
-        : data.permissions !== undefined
-        ? data.permissions
-        : u.permissions;
-
-      updatedUserObj = {
-        ...u,
-        name: data.name !== undefined ? data.name.trim() : u.name,
-        email: data.email !== undefined ? data.email.trim() : u.email,
-        companyId: data.companyId !== undefined ? data.companyId : u.companyId,
-        role: isTargetSuperAdmin ? 'Super Admin' : data.role !== undefined ? data.role : u.role,
-        customRoleName:
-          data.customRoleName !== undefined ? data.customRoleName.trim() : u.customRoleName,
-        status: isTargetSuperAdmin ? 'Active' : data.status !== undefined ? data.status : u.status,
-        permissions: updatedPermissions,
-        updatedAt: new Date().toISOString(),
-      };
-      return updatedUserObj;
-    });
-
-    setUsers(updated);
-    saveStoredUsers(updated);
-
-    if (updatedUserObj) {
-      logActivity({
-        companyId: targetUser.companyId,
-        userId: currentUser?.id,
-        userName: currentUser?.name,
-        userRole: currentUser?.role,
-        action: 'UPDATE',
-        module: 'Users',
-        recordId: targetUser.id,
-        recordName: targetUser.name,
-        description: `Updated user account details for "${targetUser.name}"`,
-        beforeData: { name: targetUser.name, email: targetUser.email, role: targetUser.role },
-        afterData: { name: updatedUserObj.name, email: updatedUserObj.email, role: updatedUserObj.role },
-        status: 'Success',
+    try {
+      const res = await apiFetch<{ success: boolean; message?: string }>('users.php?action=update', {
+        method: 'POST',
+        body: JSON.stringify({
+          id,
+          name: data.name,
+          email: data.email,
+          role: data.role,
+          status: data.status,
+          customRoleName: data.customRoleName,
+          permissions: data.permissions,
+          password: data.password,
+        }),
       });
-    }
 
-    return { success: true };
+      if (res?.success) {
+        await fetchUsers();
+        logActivity({
+          companyId: targetUser?.companyId || companyId,
+          userId: currentUser?.id,
+          userName: currentUser?.name,
+          userRole: currentUser?.role,
+          action: 'UPDATE',
+          module: 'Users',
+          recordId: id,
+          recordName: data.name || targetUser?.name || id,
+          description: `Updated user account details for "${data.name || targetUser?.name || id}"`,
+          status: 'Success',
+        });
+        return { success: true };
+      }
+      return { success: false, message: res?.message || 'Failed to update user.' };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to update user on central database.' };
+    }
   };
 
-  const updateUserPermissions = (id: string, permissions: Permission[]): { success: boolean; message?: string } => {
+  const updateUserPermissions = async (id: string, permissions: Permission[]): Promise<{ success: boolean; message?: string }> => {
     if (!isSuperAdmin() && !hasPermission(PERMISSIONS.USERS_MANAGE_PERMISSIONS)) {
       return { success: false, message: 'You do not have permission to configure user permissions.' };
     }
 
     const targetUser = users.find((u) => u.id === id);
-    if (!targetUser) {
-      return { success: false, message: 'User not found.' };
-    }
-
-    if (targetUser.id === ROOT_SUPERADMIN_ID || targetUser.role === 'Super Admin') {
+    if (id === 'USR-ROOT-001' || id === ROOT_SUPERADMIN_ID || targetUser?.role === 'Super Admin') {
       return { success: false, message: 'Permissions cannot be removed from the Super Admin account.' };
     }
 
-    const updated = users.map((u) => {
-      if (u.id !== id) return u;
-      return {
-        ...u,
-        permissions,
-        updatedAt: new Date().toISOString(),
-      };
-    });
+    try {
+      const res = await apiFetch<{ success: boolean; message?: string }>('users.php?action=update_permissions', {
+        method: 'POST',
+        body: JSON.stringify({ id, permissions }),
+      });
 
-    setUsers(updated);
-    saveStoredUsers(updated);
-
-    logActivity({
-      companyId: targetUser.companyId,
-      userId: currentUser?.id,
-      userName: currentUser?.name,
-      userRole: currentUser?.role,
-      action: 'UPDATE',
-      module: 'Users',
-      recordId: targetUser.id,
-      recordName: targetUser.name,
-      description: `Updated permissions for user "${targetUser.name}" (${permissions.length} permissions assigned)`,
-      beforeData: { permissions: targetUser.permissions },
-      afterData: { permissions },
-      status: 'Success',
-    });
-
-    return { success: true };
+      if (res?.success) {
+        await fetchUsers();
+        logActivity({
+          companyId: targetUser?.companyId || companyId,
+          userId: currentUser?.id,
+          userName: currentUser?.name,
+          userRole: currentUser?.role,
+          action: 'UPDATE',
+          module: 'Users',
+          recordId: id,
+          recordName: targetUser?.name || id,
+          description: `Updated permissions for user "${targetUser?.name || id}" (${permissions.length} permissions assigned)`,
+          status: 'Success',
+        });
+        return { success: true };
+      }
+      return { success: false, message: res?.message || 'Failed to update permissions.' };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to update user permissions on central database.' };
+    }
   };
 
   const resetUserPassword = async (
@@ -1008,134 +768,108 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const targetUser = users.find((u) => u.id === id);
-    if (!targetUser) {
-      return { success: false, message: 'User not found.' };
+
+    try {
+      const res = await apiFetch<{ success: boolean; message?: string }>('users.php?action=reset_password', {
+        method: 'POST',
+        body: JSON.stringify({ id, password: newPassword }),
+      });
+
+      if (res?.success) {
+        logActivity({
+          companyId: targetUser?.companyId || companyId,
+          userId: currentUser?.id,
+          userName: currentUser?.name,
+          userRole: currentUser?.role,
+          action: 'PASSWORD_RESET',
+          module: 'Users',
+          recordId: id,
+          recordName: targetUser?.name || id,
+          description: `Reset password for user "${targetUser?.name || id}"`,
+          status: 'Success',
+        });
+        return { success: true };
+      }
+      return { success: false, message: res?.message || 'Failed to reset password.' };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to reset password on central database.' };
     }
-
-    const targetComp = getCompanyById(targetUser.companyId) || activeCompany;
-    const cred = await generateStaffActivationCredential({
-      userId: targetUser.id,
-      companyId: targetUser.companyId,
-      companyName: targetComp.name,
-      email: targetUser.email,
-      name: targetUser.name,
-      role: targetUser.role,
-      customRoleName: targetUser.customRoleName,
-      status: targetUser.status,
-      permissions: targetUser.permissions,
-      passwordPlaintext: newPassword,
-    });
-
-    const updated = users.map((u) => {
-      if (u.id !== id) return u;
-      return {
-        ...u,
-        password: newPassword,
-        salt: cred.salt,
-        passwordVerifier: cred.verifier,
-        activationToken: cred.token,
-        updatedAt: new Date().toISOString(),
-      };
-    });
-
-    setUsers(updated);
-    saveStoredUsers(updated);
-
-    logActivity({
-      companyId: targetUser.companyId,
-      userId: currentUser?.id,
-      userName: currentUser?.name,
-      userRole: currentUser?.role,
-      action: 'PASSWORD_RESET',
-      module: 'Users',
-      recordId: targetUser.id,
-      recordName: targetUser.name,
-      description: `Reset password for user "${targetUser.name}"`,
-      status: 'Success',
-    });
-
-    return { success: true };
   };
 
-  const toggleUserStatus = (id: string): { success: boolean; message?: string } => {
+  const toggleUserStatus = async (id: string): Promise<{ success: boolean; message?: string }> => {
     if (!isSuperAdmin() && !hasPermission(PERMISSIONS.USERS_EDIT)) {
       return { success: false, message: 'You do not have permission to toggle account status.' };
     }
 
     const targetUser = users.find((u) => u.id === id);
-    if (!targetUser) {
-      return { success: false, message: 'User not found.' };
-    }
-
-    if (targetUser.id === ROOT_SUPERADMIN_ID || targetUser.role === 'Super Admin') {
+    if (id === ROOT_SUPERADMIN_ID || id === 'USR-ROOT-001' || targetUser?.role === 'Super Admin') {
       return { success: false, message: 'The Super Admin account cannot be disabled.' };
     }
 
-    const newStatus: UserStatus = targetUser.status === 'Active' ? 'Disabled' : 'Active';
+    try {
+      const res = await apiFetch<{ success: boolean; newStatus?: string; message?: string }>('users.php?action=toggle_status', {
+        method: 'POST',
+        body: JSON.stringify({ id }),
+      });
 
-    const updated = users.map((u) => {
-      if (u.id !== id) return u;
-      return {
-        ...u,
-        status: newStatus,
-        updatedAt: new Date().toISOString(),
-      };
-    });
-
-    setUsers(updated);
-    saveStoredUsers(updated);
-
-    logActivity({
-      companyId: targetUser.companyId,
-      userId: currentUser?.id,
-      userName: currentUser?.name,
-      userRole: currentUser?.role,
-      action: 'UPDATE',
-      module: 'Users',
-      recordId: targetUser.id,
-      recordName: targetUser.name,
-      description: `Changed account status for "${targetUser.name}" to ${newStatus}`,
-      beforeData: { status: targetUser.status },
-      afterData: { status: newStatus },
-      status: 'Success',
-    });
-
-    return { success: true };
+      if (res?.success) {
+        await fetchUsers();
+        logActivity({
+          companyId: targetUser?.companyId || companyId,
+          userId: currentUser?.id,
+          userName: currentUser?.name,
+          userRole: currentUser?.role,
+          action: 'UPDATE',
+          module: 'Users',
+          recordId: id,
+          recordName: targetUser?.name || id,
+          description: `Changed account status for "${targetUser?.name || id}" to ${res.newStatus}`,
+          status: 'Success',
+        });
+        return { success: true, message: res.message };
+      }
+      return { success: false, message: res?.message || 'Failed to update user status.' };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to toggle status on central database.' };
+    }
   };
 
-  const deleteUser = (id: string): { success: boolean; message?: string } => {
+  const deleteUser = async (id: string): Promise<{ success: boolean; message?: string }> => {
     if (!isSuperAdmin() && !hasPermission(PERMISSIONS.USERS_DELETE)) {
       return { success: false, message: 'You do not have permission to delete user accounts.' };
     }
 
     const targetUser = users.find((u) => u.id === id);
-    if (!targetUser) {
-      return { success: false, message: 'User not found.' };
-    }
-
-    if (targetUser.id === ROOT_SUPERADMIN_ID || targetUser.role === 'Super Admin') {
+    if (id === ROOT_SUPERADMIN_ID || id === 'USR-ROOT-001' || targetUser?.role === 'Super Admin') {
       return { success: false, message: 'The Super Admin account cannot be deleted.' };
     }
 
-    const updated = users.filter((u) => u.id !== id);
-    setUsers(updated);
-    saveStoredUsers(updated);
+    try {
+      const res = await apiFetch<{ success: boolean; message?: string }>('users.php?action=delete', {
+        method: 'POST',
+        body: JSON.stringify({ id }),
+      });
 
-    logActivity({
-      companyId: targetUser.companyId,
-      userId: currentUser?.id,
-      userName: currentUser?.name,
-      userRole: currentUser?.role,
-      action: 'DELETE',
-      module: 'Users',
-      recordId: targetUser.id,
-      recordName: targetUser.name,
-      description: `Deleted user account "${targetUser.name}" (${targetUser.email})`,
-      beforeData: { name: targetUser.name, email: targetUser.email },
-      status: 'Success',
-    });
-
-    return { success: true };
+      if (res?.success) {
+        await fetchUsers();
+        logActivity({
+          companyId: targetUser?.companyId || companyId,
+          userId: currentUser?.id,
+          userName: currentUser?.name,
+          userRole: currentUser?.role,
+          action: 'DELETE',
+          module: 'Users',
+          recordId: id,
+          recordName: targetUser?.name || id,
+          description: `Deleted user account "${targetUser?.name || id}"`,
+          status: 'Success',
+        });
+        return { success: true };
+      }
+      return { success: false, message: res?.message || 'Failed to delete user.' };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to delete user on central database.' };
+    }
   };
 
   return (

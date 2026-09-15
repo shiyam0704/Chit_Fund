@@ -5,6 +5,7 @@ import { getActiveCompanyId, DEFAULT_COMPANY_ID, getCompanyById } from '@/featur
 export const APP_DATA_KEY = 'chitfund_app_data';
 export const AUTH_STORAGE_KEY = 'chitfund_auth';
 export const USERS_STORAGE_KEY = 'chitfund_users';
+export const THEME_STORAGE_KEY = 'chitfund_theme';
 
 export function getCompanyAppDataKey(companyId?: string): string {
   const targetId = companyId || getActiveCompanyId();
@@ -45,11 +46,18 @@ export const getDefaultAppData = (companyId?: string): AppData => {
   const targetCompanyId = companyId || getActiveCompanyId();
   const companyInfo = getCompanyById(targetCompanyId);
   const companyName = companyInfo?.name || defaultCompanySettings.companyName;
+  let theme: 'dark' | 'light' = 'dark';
+  try {
+    const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+    if (storedTheme === 'light' || storedTheme === 'dark') {
+      theme = storedTheme;
+    }
+  } catch {}
 
   return {
     version: 2,
     companyId: targetCompanyId,
-    theme: 'dark',
+    theme,
     companySettings: {
       ...defaultCompanySettings,
       companyName,
@@ -65,119 +73,52 @@ export const getDefaultAppData = (companyId?: string): AppData => {
   };
 };
 
+// In-memory runtime cache (avoids storing business data in LocalStorage)
+let memoryCache: Record<string, AppData> = {};
+
 /**
- * Loads company-scoped application data with automatic safe migration from legacy storage.
+ * Loads company-scoped application data.
+ * Adheres strictly to security requirements: business data (chits, members, collections, users)
+ * is kept in centralized backend and in-memory runtime cache, NOT in browser LocalStorage.
  */
 export const getCompanyAppData = (companyId?: string): AppData => {
   const targetCompanyId = companyId || getActiveCompanyId();
-  const scopedKey = getCompanyAppDataKey(targetCompanyId);
 
+  // Purge legacy business data keys from LocalStorage if present
   try {
-    const rawScoped = localStorage.getItem(scopedKey);
-
-    // Read primary users store ('chitfund_users') if present
-    let primaryUsers: UserAccount[] | undefined;
-    const rawUsers = localStorage.getItem(USERS_STORAGE_KEY);
-    if (rawUsers) {
-      try {
-        const parsedUsers = JSON.parse(rawUsers);
-        if (Array.isArray(parsedUsers) && parsedUsers.length > 0) {
-          primaryUsers = parsedUsers;
-        }
-      } catch {}
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(USERS_STORAGE_KEY);
+      localStorage.removeItem(APP_DATA_KEY);
+      localStorage.removeItem(getCompanyAppDataKey(targetCompanyId));
     }
+  } catch {}
 
-    if (rawScoped) {
-      const data = JSON.parse(rawScoped);
-      const resolvedUsers: UserAccount[] = primaryUsers || (Array.isArray(data.users) && data.users.length > 0
-        ? data.users
-        : [createDefaultSuperAdminUser()]);
-
-      return {
-        version: 2,
-        companyId: targetCompanyId,
-        theme: data.theme || 'dark',
-        companySettings: data.companySettings || defaultCompanySettings,
-        chits: Array.isArray(data.chits) ? data.chits : [],
-        members: Array.isArray(data.members) ? data.members : [],
-        transactions: Array.isArray(data.transactions) ? data.transactions : [],
-        payouts: Array.isArray(data.payouts) ? data.payouts : [],
-        manualWinnerAssignments: data.manualWinnerAssignments || {},
-        users: resolvedUsers,
-        roleDefaults: data.roleDefaults || DEFAULT_ROLE_PERMISSIONS,
-      };
-    }
-
-    // Scoped data does not exist yet for this company.
-    // Check if legacy chitfund_app_data exists and we are loading DEFAULT_COMPANY_ID:
-    // Safely migrate existing legacy data without loss!
-    const rawLegacy = localStorage.getItem(APP_DATA_KEY);
-    if (rawLegacy && targetCompanyId === DEFAULT_COMPANY_ID) {
-      try {
-        const legacyData = JSON.parse(rawLegacy);
-        const migrated: AppData = {
-          version: 2,
-          companyId: DEFAULT_COMPANY_ID,
-          theme: legacyData.theme || 'dark',
-          companySettings: legacyData.companySettings || defaultCompanySettings,
-          chits: (legacyData.chits || []).map((c: any) => ({ ...c, companyId: DEFAULT_COMPANY_ID })),
-          members: (legacyData.members || []).map((m: any) => ({ ...m, companyId: DEFAULT_COMPANY_ID })),
-          transactions: (legacyData.transactions || []).map((t: any) => ({ ...t, companyId: DEFAULT_COMPANY_ID })),
-          payouts: (legacyData.payouts || []).map((p: any) => ({ ...p, companyId: DEFAULT_COMPANY_ID })),
-          manualWinnerAssignments: legacyData.manualWinnerAssignments || {},
-          users: primaryUsers || legacyData.users || [createDefaultSuperAdminUser()],
-          roleDefaults: legacyData.roleDefaults || DEFAULT_ROLE_PERMISSIONS,
-        };
-        saveCompanyAppData(migrated, DEFAULT_COMPANY_ID);
-        return migrated;
-      } catch (e) {
-        console.warn('[Storage] Legacy data migration warning:', e);
-      }
-    }
-
-    // No existing data found: seed fresh company dataset
-    const initial = getDefaultAppData(targetCompanyId);
-    if (primaryUsers && primaryUsers.length > 0) {
-      initial.users = primaryUsers;
-    }
-    saveCompanyAppData(initial, targetCompanyId);
-    return initial;
-  } catch (err) {
-    console.error(`[Storage] Error reading application data for company ${targetCompanyId}:`, err);
-    const fallback = getDefaultAppData(targetCompanyId);
-    saveCompanyAppData(fallback, targetCompanyId);
-    return fallback;
+  if (memoryCache[targetCompanyId]) {
+    return memoryCache[targetCompanyId];
   }
+
+  const defaultData = getDefaultAppData(targetCompanyId);
+  memoryCache[targetCompanyId] = defaultData;
+  return defaultData;
 };
 
 /**
- * Persists company-scoped application data to LocalStorage.
+ * Saves runtime application data.
+ * Only non-sensitive preferences (e.g. theme) are written to LocalStorage.
  */
 export const saveCompanyAppData = (data: AppData, companyId?: string): boolean => {
   const targetCompanyId = companyId || data.companyId || getActiveCompanyId();
-  const scopedKey = getCompanyAppDataKey(targetCompanyId);
+  memoryCache[targetCompanyId] = {
+    ...data,
+    companyId: targetCompanyId,
+  };
 
   try {
-    const dataWithCompany: AppData = {
-      ...data,
-      companyId: targetCompanyId,
-    };
-    const serialized = JSON.stringify(dataWithCompany);
-    localStorage.setItem(scopedKey, serialized);
-
-    // If active company is DEFAULT_COMPANY_ID, mirror to legacy key for backwards compatibility
-    if (targetCompanyId === DEFAULT_COMPANY_ID) {
-      try {
-        localStorage.setItem(APP_DATA_KEY, serialized);
-      } catch {}
+    if (typeof localStorage !== 'undefined' && data.theme) {
+      localStorage.setItem(THEME_STORAGE_KEY, data.theme);
     }
-
     return true;
-  } catch (err: any) {
-    console.error(`[Storage] Failed to save app data for company ${targetCompanyId}:`, err);
-    if (err?.name === 'QuotaExceededError' || err?.code === 22) {
-      alert('Warning: Browser LocalStorage quota has been exceeded! Try deleting large receipt attachments.');
-    }
+  } catch {
     return false;
   }
 };
@@ -198,54 +139,48 @@ export const updateAppData = (updater: (prev: AppData) => AppData, companyId?: s
   return next;
 };
 
-export const compressReceiptImage = (
+export async function compressReceiptImage(
   file: File,
   maxWidth = 1000,
   maxHeight = 1000,
   quality = 0.7
-): Promise<string> => {
+): Promise<string> {
   return new Promise((resolve, reject) => {
-    if (!file.type.startsWith('image/')) {
-      return reject(new Error('Selected file is not an image.'));
-    }
-    if (file.size > 12 * 1024 * 1024) {
-      return reject(new Error('Image file is too large (max 12MB). Please select a smaller photo.'));
-    }
-
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Failed to read image file.'));
-    reader.onload = (e) => {
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
       const img = new Image();
-      img.onerror = () => reject(new Error('Failed to load image for compression.'));
+      img.src = event.target?.result as string;
       img.onload = () => {
+        const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
 
-        if (width > maxWidth || height > maxHeight) {
-          if (width > height) {
+        if (width > height) {
+          if (width > maxWidth) {
             height = Math.round((height * maxWidth) / width);
             width = maxWidth;
-          } else {
+          }
+        } else {
+          if (height > maxHeight) {
             width = Math.round((width * maxHeight) / height);
             height = maxHeight;
           }
         }
 
-        const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          return resolve(e.target?.result as string);
+          resolve(event.target?.result as string);
+          return;
         }
-
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', quality));
+        resolve(canvas.toDataURL(file.type || 'image/jpeg', quality));
       };
-      img.src = e.target?.result as string;
+      img.onerror = (error) => reject(error);
     };
-    reader.readAsDataURL(file);
+    reader.onerror = (error) => reject(error);
   });
-};
+}
 
-export const compressImage = compressReceiptImage;

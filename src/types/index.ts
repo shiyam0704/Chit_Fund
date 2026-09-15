@@ -245,7 +245,6 @@ export interface UserAccount {
   companyName?: string;
   name: string;
   email: string;
-  password?: string;
   salt?: string;
   passwordVerifier?: string;
   activationToken?: string;

@@ -135,10 +135,7 @@ export const StaffInvitationModal: React.FC<StaffInvitationModalProps> = ({
 
   const handleDownloadFile = () => {
     if (!user) return;
-    const staffPassword =
-      passwordInput.trim() ||
-      user.password ||
-      (user.role === 'Super Admin' || user.id === ROOT_SUPERADMIN_ID ? ADMIN_CREDENTIALS.password : '');
+    const staffPassword = passwordInput.trim() || '';
 
     downloadChitUserFile({
       name: user.name,

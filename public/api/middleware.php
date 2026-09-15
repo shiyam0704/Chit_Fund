@@ -89,12 +89,61 @@ function authenticateUser(): array {
     ];
 }
 
-function requirePermission(array $userSession, string $permission): void {
-    if ($userSession['role'] === 'Super Admin') {
-        return; // Super Admin has unrestricted access
+function hasUserPermission(array $userSession, string $permission): bool {
+    if (($userSession['role'] ?? '') === 'Super Admin' || ($userSession['email'] ?? '') === SUPERADMIN_EMAIL) {
+        return true;
     }
     $permissions = $userSession['permissions'] ?? [];
-    if (!in_array($permission, $permissions, true)) {
+    if (!is_array($permissions)) return false;
+
+    static $aliases = [
+        'dashboard.view' => ['dashboard.view', 'VIEW_DASHBOARD', 'DASHBOARD_VIEW'],
+        'chits.view' => ['chits.view', 'VIEW_CHITS', 'CHITS_VIEW'],
+        'chits.create' => ['chits.create', 'CHITS_CREATE', 'CREATE_CHITS'],
+        'chits.edit' => ['chits.edit', 'CHITS_EDIT', 'EDIT_CHITS'],
+        'chits.delete' => ['chits.delete', 'CHITS_DELETE', 'DELETE_CHITS'],
+        'members.view' => ['members.view', 'VIEW_MEMBERS', 'MEMBERS_VIEW'],
+        'members.create' => ['members.create', 'MEMBERS_CREATE', 'CREATE_MEMBERS'],
+        'members.edit' => ['members.edit', 'MEMBERS_EDIT', 'EDIT_MEMBERS'],
+        'members.delete' => ['members.delete', 'MEMBERS_DELETE', 'DELETE_MEMBERS'],
+        'payments.view' => ['payments.view', 'VIEW_PAYMENTS', 'PAYMENTS_VIEW', 'COLLECTIONS_VIEW', 'VIEW_COLLECTIONS'],
+        'payments.create' => ['payments.create', 'PAYMENTS_CREATE', 'CREATE_PAYMENTS', 'COLLECTIONS_CREATE', 'CREATE_COLLECTIONS'],
+        'payments.edit' => ['payments.edit', 'PAYMENTS_EDIT', 'EDIT_PAYMENTS', 'COLLECTIONS_EDIT', 'EDIT_COLLECTIONS'],
+        'payments.delete' => ['payments.delete', 'PAYMENTS_DELETE', 'DELETE_PAYMENTS', 'COLLECTIONS_DELETE', 'DELETE_COLLECTIONS'],
+        'reports.view' => ['reports.view', 'VIEW_REPORTS', 'REPORTS_VIEW'],
+        'reports.export' => ['reports.export', 'REPORTS_EXPORT', 'EXPORT_REPORTS'],
+        'settings.view' => ['settings.view', 'VIEW_SETTINGS', 'SETTINGS_VIEW'],
+        'settings.edit' => ['settings.edit', 'SETTINGS_EDIT', 'EDIT_SETTINGS'],
+        'users.view' => ['users.view', 'VIEW_USERS', 'USERS_VIEW'],
+        'users.create' => ['users.create', 'USERS_CREATE', 'CREATE_USERS'],
+        'users.edit' => ['users.edit', 'USERS_EDIT', 'EDIT_USERS'],
+        'users.delete' => ['users.delete', 'USERS_DELETE', 'DELETE_USERS'],
+        'audit_trail.view' => ['audit_trail.view', 'VIEW_AUDIT_TRAIL', 'AUDIT_TRAIL_VIEW'],
+        'backup.view' => ['backup.view', 'VIEW_BACKUP', 'BACKUP_VIEW'],
+    ];
+
+    if (in_array($permission, $permissions, true)) return true;
+
+    foreach ($aliases as $canonical => $list) {
+        if ($permission === $canonical || in_array($permission, $list, true)) {
+            foreach ($list as $alias) {
+                if (in_array($alias, $permissions, true)) return true;
+            }
+        }
+    }
+
+    foreach ($permissions as $up) {
+        if (isset($aliases[$up]) && in_array($permission, $aliases[$up], true)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function requirePermission(array $userSession, string $permission): void {
+    if (!hasUserPermission($userSession, $permission)) {
         jsonError("Forbidden: Insufficient permissions for '$permission'", 403);
     }
 }
+
