@@ -98,7 +98,8 @@ interface AuthContextType {
   activateStaffAccount: (credentialInput: string) => Promise<{ success: boolean; message: string; user?: UserAccount }>;
   generateUserActivationCredential: (
     userId: string,
-    passwordPlaintext?: string
+    passwordPlaintext?: string,
+    fallbackUser?: UserAccount
   ) => Promise<{ token?: string; chitUserFile?: ChitUserFile; activationCode?: string; error?: string }>;
   // RBAC Permission Helpers
   hasPermission: (permission: Permission | string) => boolean;
@@ -459,14 +460,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const generateUserActivationCredential = async (
     userId: string,
-    passwordPlaintext?: string
+    passwordPlaintext?: string,
+    fallbackUser?: UserAccount
   ): Promise<{ token?: string; chitUserFile?: ChitUserFile; activationCode?: string; error?: string }> => {
-    const targetUser = users.find((u) => u.id === userId);
-    if (!targetUser) {
-      return { error: 'User not found.' };
+    let targetUser = users.find((u) => u.id === userId || u.email?.toLowerCase() === userId.toLowerCase());
+    
+    if (!targetUser && fallbackUser) {
+      targetUser = fallbackUser;
     }
 
-    const targetCompany = getCompanyById(targetUser.companyId) || activeCompany;
+    if (!targetUser) {
+      try {
+        const res = await apiFetch<{ success: boolean; users: UserAccount[] }>('users.php?action=list');
+        if (res?.success && Array.isArray(res.users)) {
+          setUsers(res.users);
+          targetUser = res.users.find((u) => u.id === userId || u.email?.toLowerCase() === userId.toLowerCase());
+        }
+      } catch {}
+    }
+
+    if (!targetUser) {
+      return { error: 'User not found. Please refresh user list.' };
+    }
+
+    const targetCompany = (targetUser.companyId && getCompanyById(targetUser.companyId)) || activeCompany;
 
     try {
       if (targetUser.activationCode) {

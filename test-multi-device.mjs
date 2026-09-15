@@ -36,8 +36,9 @@ async function runTests() {
   const adminToken = adminLogin.data.token;
   console.log('  [PASS] Admin logged in successfully.');
 
+  const runId = Math.floor(Math.random() * 900000 + 100000);
   // Admin creates Chit A
-  const chitAId = 'CHIT-TEST-001';
+  const chitAId = 'CHIT-TEST-' + runId;
   const createChitRes = await api('chits.php?action=create', {
     method: 'POST',
     token: adminToken,
@@ -57,7 +58,7 @@ async function runTests() {
   console.log('  [PASS] Chit A created successfully.');
 
   // Admin adds Member 001
-  const member001Id = 'MEM-TEST-001';
+  const member001Id = 'MEM-TEST-A-' + runId;
   const createMemberRes = await api('members.php?action=create', {
     method: 'POST',
     token: adminToken,
@@ -65,7 +66,7 @@ async function runTests() {
       id: member001Id,
       name: 'Ramesh Kumar (Member 001)',
       phone: '9876543210',
-      email: 'ramesh@example.com',
+      email: 'ramesh' + runId + '@example.com',
       chitId: chitAId,
       status: 'Active',
     },
@@ -75,7 +76,7 @@ async function runTests() {
 
   // Admin creates Staff User 001 with permissions:
   // Chits: View, Members: View + Add, Collections: View + Add, Reports: NO ACCESS, Users: NO ACCESS
-  const staffEmail = 'staff001@chitfund.com';
+  const staffEmail = 'staff' + runId + '@chitfund.com';
   const staffPass = 'staffpass123';
   const staffPerms = [
     'dashboard.view',
@@ -134,7 +135,7 @@ async function runTests() {
   // TEST 3: Staff on Computer B adds Member 002 -> Admin on Computer A sees it
   // --------------------------------------------------------------------------
   console.log('\n--- TEST 3: Staff adds permitted record on Computer B -> Admin sees it on Computer A ---');
-  const member002Id = 'MEM-TEST-002';
+  const member002Id = 'MEM-TEST-B-' + runId;
   const staffAddMemberRes = await api('members.php?action=create', {
     method: 'POST',
     token: staffToken,
