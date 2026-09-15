@@ -1,6 +1,6 @@
 <?php
 // ==============================================================================
-// USERS MANAGEMENT API ENDPOINT (Company scoped, Central Persistent Storage)
+// USERS MANAGEMENT API ENDPOINT (Strict Multi-Tenant Scoping)
 // ==============================================================================
 
 require_once __DIR__ . '/config.php';
@@ -13,25 +13,22 @@ $companyId = $session['companyId'];
 $action = $_GET['action'] ?? 'list';
 $pdo = Database::getConnection();
 
-// 1. LIST USERS
+// 1. LIST USERS (Strictly scoped to authenticated user's company)
 if ($action === 'list') {
     requirePermission($session, 'users.view');
     
-    // In universal single-company mode or Super Admin, list all users for the company
-    $stmt = $pdo->prepare("SELECT id, company_id, name, email, role, custom_role_name, status, permissions, created_at FROM users WHERE company_id = :company_id OR :is_super = 1 ORDER BY created_at DESC");
-    $stmt->execute([
-        'company_id' => $companyId,
-        'is_super' => ($session['role'] === 'Super Admin') ? 1 : 0
-    ]);
+    $stmt = $pdo->prepare("
+        SELECT id, company_id, name, email, role, custom_role_name, status, permissions, created_at 
+        FROM users 
+        WHERE company_id = :company_id 
+        ORDER BY created_at DESC
+    ");
+    $stmt->execute(['company_id' => $companyId]);
     
     $raw = $stmt->fetchAll();
     $users = [];
-    $hasSuperAdminInList = false;
 
     foreach ($raw as $u) {
-        if ($u['email'] === SUPERADMIN_EMAIL || $u['role'] === 'Super Admin') {
-            $hasSuperAdminInList = true;
-        }
         $users[] = [
             'id' => $u['id'],
             'companyId' => $u['company_id'],
@@ -45,24 +42,10 @@ if ($action === 'list') {
         ];
     }
 
-    // Always ensure Super Admin is visible to Admin
-    if (!$hasSuperAdminInList) {
-        array_unshift($users, [
-            'id' => 'USR-ROOT-001',
-            'companyId' => $companyId,
-            'name' => 'Super Administrator',
-            'email' => SUPERADMIN_EMAIL,
-            'role' => 'Super Admin',
-            'status' => 'Active',
-            'permissions' => ["VIEW_DASHBOARD","VIEW_CHITS","CHITS_CREATE","CHITS_EDIT","CHITS_DELETE","VIEW_MEMBERS","MEMBERS_CREATE","MEMBERS_EDIT","MEMBERS_DELETE","VIEW_PAYMENTS","PAYMENTS_CREATE","PAYMENTS_EDIT","PAYMENTS_DELETE","VIEW_REPORTS","REPORTS_EXPORT","REPORTS_PRINT","VIEW_SETTINGS","SETTINGS_EDIT","VIEW_USERS","USERS_CREATE","USERS_EDIT","USERS_DELETE","VIEW_BACKUP","BACKUP_CREATE","BACKUP_RESTORE","VIEW_AUDIT_TRAIL","AUDIT_EXPORT","AUDIT_CLEAR"],
-            'createdAt' => '2026-01-01 00:00:00',
-        ]);
-    }
-
-    jsonResponse(['success' => true, 'users' => $users]);
+    jsonResponse(['success' => true, 'companyId' => $companyId, 'users' => $users]);
 }
 
-// 2. CREATE USER
+// 2. CREATE USER (Strictly inherits authenticated Admin's company_id)
 if ($action === 'create') {
     requirePermission($session, 'users.create');
     $input = getJsonInput();
@@ -71,13 +54,14 @@ if ($action === 'create') {
     }
 
     $email = strtolower(trim($input['email']));
-    // Prevent normal users from creating Super Admin
     $role = $input['role'] ?? 'Staff';
+
+    // Disallow regular admins from creating a Super Admin account
     if ($role === 'Super Admin' && $session['role'] !== 'Super Admin') {
         jsonError("Cannot create a Super Admin account", 403);
     }
 
-    // Check if email already exists
+    // Check if email already exists globally
     $chk = $pdo->prepare("SELECT id FROM users WHERE LOWER(email) = :email LIMIT 1");
     $chk->execute(['email' => $email]);
     if ($chk->fetch() || $email === SUPERADMIN_EMAIL) {
@@ -86,7 +70,9 @@ if ($action === 'create') {
 
     $id = $input['id'] ?? ('USR-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 8)));
     $passwordHash = password_hash($input['password'], PASSWORD_BCRYPT);
-    $targetCompanyId = (!empty($input['companyId'])) ? $input['companyId'] : $companyId;
+    
+    // SECURITY: Always inherit the authenticated admin's company_id! Never trust client input.
+    $targetCompanyId = $companyId;
 
     $permissions = $input['permissions'] ?? [];
     if (empty($permissions)) {
@@ -130,13 +116,21 @@ if ($action === 'create') {
     ]);
 }
 
-// 3. UPDATE USER
+// 3. UPDATE USER (Strictly isolated to company)
 if ($action === 'update' || $action === 'update_permissions') {
     requirePermission($session, 'users.edit');
     $input = getJsonInput();
     $id = $input['id'] ?? '';
     if (empty($id)) {
         jsonError("User ID is required", 400);
+    }
+
+    // Verify user exists and belongs to the authenticated admin's company
+    $chkStmt = $pdo->prepare("SELECT id, role FROM users WHERE id = :id AND company_id = :company_id LIMIT 1");
+    $chkStmt->execute(['id' => $id, 'company_id' => $companyId]);
+    $targetUser = $chkStmt->fetch();
+    if (!$targetUser) {
+        jsonError("User not found or does not belong to your company", 404);
     }
 
     // Protect Super Admin root account
@@ -150,7 +144,7 @@ if ($action === 'update' || $action === 'update_permissions') {
     }
 
     $fields = [];
-    $params = ['id' => $id];
+    $params = ['id' => $id, 'company_id' => $companyId];
 
     if (isset($input['name'])) {
         $fields[] = "name = :name";
@@ -182,14 +176,14 @@ if ($action === 'update' || $action === 'update_permissions') {
     }
 
     if (!empty($fields)) {
-        $stmt = $pdo->prepare("UPDATE users SET " . implode(', ', $fields) . " WHERE id = :id");
+        $stmt = $pdo->prepare("UPDATE users SET " . implode(', ', $fields) . " WHERE id = :id AND company_id = :company_id");
         $stmt->execute($params);
     }
 
     jsonResponse(['success' => true, 'id' => $id, 'message' => "User updated successfully"]);
 }
 
-// 4. RESET PASSWORD
+// 4. RESET PASSWORD (Strictly scoped to company)
 if ($action === 'reset_password') {
     requirePermission($session, 'users.edit');
     $input = getJsonInput();
@@ -200,13 +194,21 @@ if ($action === 'reset_password') {
     }
 
     $passwordHash = password_hash($newPassword, PASSWORD_BCRYPT);
-    $stmt = $pdo->prepare("UPDATE users SET password_hash = :password_hash WHERE id = :id");
-    $stmt->execute(['password_hash' => $passwordHash, 'id' => $id]);
+    $stmt = $pdo->prepare("UPDATE users SET password_hash = :password_hash WHERE id = :id AND company_id = :company_id");
+    $stmt->execute([
+        'password_hash' => $passwordHash,
+        'id' => $id,
+        'company_id' => $companyId,
+    ]);
+
+    if ($stmt->rowCount() === 0) {
+        jsonError("User not found or does not belong to your company", 404);
+    }
 
     jsonResponse(['success' => true, 'message' => "Password reset successfully"]);
 }
 
-// 5. TOGGLE STATUS
+// 5. TOGGLE STATUS (Strictly scoped to company)
 if ($action === 'toggle_status') {
     requirePermission($session, 'users.edit');
     $input = getJsonInput();
@@ -218,21 +220,25 @@ if ($action === 'toggle_status') {
         jsonError("Cannot change status of primary admin or own account", 400);
     }
 
-    $stmt = $pdo->prepare("SELECT status FROM users WHERE id = :id LIMIT 1");
-    $stmt->execute(['id' => $id]);
+    $stmt = $pdo->prepare("SELECT status FROM users WHERE id = :id AND company_id = :company_id LIMIT 1");
+    $stmt->execute(['id' => $id, 'company_id' => $companyId]);
     $user = $stmt->fetch();
     if (!$user) {
-        jsonError("User not found", 404);
+        jsonError("User not found or does not belong to your company", 404);
     }
 
     $newStatus = ($user['status'] === 'Active') ? 'Disabled' : 'Active';
-    $uStmt = $pdo->prepare("UPDATE users SET status = :status WHERE id = :id");
-    $uStmt->execute(['status' => $newStatus, 'id' => $id]);
+    $uStmt = $pdo->prepare("UPDATE users SET status = :status WHERE id = :id AND company_id = :company_id");
+    $uStmt->execute([
+        'status' => $newStatus,
+        'id' => $id,
+        'company_id' => $companyId,
+    ]);
 
     jsonResponse(['success' => true, 'newStatus' => $newStatus, 'message' => "User status updated to $newStatus"]);
 }
 
-// 6. DELETE USER
+// 6. DELETE USER (Strictly scoped to company)
 if ($action === 'delete') {
     requirePermission($session, 'users.delete');
     $input = getJsonInput();
@@ -245,8 +251,12 @@ if ($action === 'delete') {
         jsonError("Cannot delete Super Admin or your own user account", 400);
     }
 
-    $stmt = $pdo->prepare("DELETE FROM users WHERE id = :id");
-    $stmt->execute(['id' => $id]);
+    $stmt = $pdo->prepare("DELETE FROM users WHERE id = :id AND company_id = :company_id");
+    $stmt->execute(['id' => $id, 'company_id' => $companyId]);
+
+    if ($stmt->rowCount() === 0) {
+        jsonError("User not found or does not belong to your company", 404);
+    }
 
     jsonResponse(['success' => true, 'message' => "User deleted successfully"]);
 }

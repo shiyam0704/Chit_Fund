@@ -1,6 +1,6 @@
 <?php
 // ==============================================================================
-// CHITS API ENDPOINT (Scoped strictly to authenticated company)
+// CHITS API ENDPOINT (Strict Multi-Tenant Scoping)
 // ==============================================================================
 
 require_once __DIR__ . '/config.php';
@@ -13,14 +13,16 @@ $companyId = $session['companyId'];
 $action = $_GET['action'] ?? 'list';
 $pdo = Database::getConnection();
 
-// Ensure company exists
-try {
-    $cCheck = $pdo->prepare("INSERT IGNORE INTO companies (id, name, status) VALUES (:id, 'Chit Fund Management', 'Active')");
-    $cCheck->execute(['id' => $companyId]);
-} catch (Exception $ce) {
-    // Ignore if already exists
+// 1. LIST CHITS
+if ($action === 'list') {
+    requirePermission($session, 'CHITS_VIEW');
+    $stmt = $pdo->prepare("SELECT * FROM chits WHERE company_id = :company_id ORDER BY created_at DESC");
+    $stmt->execute(['company_id' => $companyId]);
+    $raw = $stmt->fetchAll();
+    jsonResponse(['success' => true, 'companyId' => $companyId, 'chits' => $raw]);
 }
 
+// 2. CREATE CHIT
 if ($action === 'create') {
     requirePermission($session, 'CHITS_CREATE');
     $input = getJsonInput();
@@ -66,10 +68,17 @@ if ($action === 'create') {
             'month_payouts' => !empty($input['monthPayouts']) ? json_encode($input['monthPayouts']) : null,
         ];
 
-        // Check if chit with this id already exists (UPSERT pattern for both SQLite & MySQL)
-        $chk = $pdo->prepare("SELECT id FROM chits WHERE id = :id LIMIT 1");
+        // Check if chit with this id exists
+        $chk = $pdo->prepare("SELECT id, company_id FROM chits WHERE id = :id LIMIT 1");
         $chk->execute(['id' => $id]);
-        if ($chk->fetch()) {
+        $existing = $chk->fetch();
+
+        if ($existing) {
+            // If it belongs to another company, strictly reject!
+            if ($existing['company_id'] !== $companyId) {
+                jsonError("Forbidden: Chit exists under another company", 403);
+            }
+
             $uStmt = $pdo->prepare("
                 UPDATE chits SET
                     company_id = :company_id,
@@ -100,7 +109,7 @@ if ($action === 'create') {
                     month_overrides = :month_overrides,
                     month_statuses = :month_statuses,
                     month_payouts = :month_payouts
-                WHERE id = :id
+                WHERE id = :id AND company_id = :company_id
             ");
             $uStmt->execute($params);
             jsonResponse(['success' => true, 'id' => $id, 'message' => "Chit updated successfully"]);
@@ -110,19 +119,21 @@ if ($action === 'create') {
             INSERT INTO chits (
                 id, company_id, name, chit_amount, duration_months, members_count,
                 monthly_installment, base_monthly_amount, initial_bid_amount,
-                bid_reduction_method, bid_reduction_value, collected_amount, pending_amount,
-                start_date, end_date, commission_percentage, grace_period_days, status,
-                description, installment_type, monthly_increase_amount, step_up_config,
-                auctions, is_configured, enrolled_member_ids, month_member_assignments,
-                month_overrides, month_statuses, month_payouts
+                bid_reduction_method, bid_reduction_value, collected_amount,
+                pending_amount, start_date, end_date, commission_percentage,
+                grace_period_days, status, description, installment_type,
+                monthly_increase_amount, step_up_config, auctions, is_configured,
+                enrolled_member_ids, month_member_assignments, month_overrides,
+                month_statuses, month_payouts
             ) VALUES (
                 :id, :company_id, :name, :chit_amount, :duration_months, :members_count,
                 :monthly_installment, :base_monthly_amount, :initial_bid_amount,
-                :bid_reduction_method, :bid_reduction_value, :collected_amount, :pending_amount,
-                :start_date, :end_date, :commission_percentage, :grace_period_days, :status,
-                :description, :installment_type, :monthly_increase_amount, :step_up_config,
-                :auctions, :is_configured, :enrolled_member_ids, :month_member_assignments,
-                :month_overrides, :month_statuses, :month_payouts
+                :bid_reduction_method, :bid_reduction_value, :collected_amount,
+                :pending_amount, :start_date, :end_date, :commission_percentage,
+                :grace_period_days, :status, :description, :installment_type,
+                :monthly_increase_amount, :step_up_config, :auctions, :is_configured,
+                :enrolled_member_ids, :month_member_assignments, :month_overrides,
+                :month_statuses, :month_payouts
             )
         ");
 
@@ -134,20 +145,20 @@ if ($action === 'create') {
     }
 }
 
+// 3. UPDATE CHIT
 if ($action === 'update') {
     requirePermission($session, 'CHITS_EDIT');
     $input = getJsonInput();
     $id = $input['id'] ?? '';
     if (empty($id)) {
-        jsonError("Chit ID is required for update", 400);
+        jsonError("Chit ID is required", 400);
     }
 
     try {
-        // Verify chit belongs to authenticated company
         $chk = $pdo->prepare("SELECT id FROM chits WHERE id = :id AND company_id = :company_id LIMIT 1");
         $chk->execute(['id' => $id, 'company_id' => $companyId]);
         if (!$chk->fetch()) {
-            jsonError("Chit not found or unauthorized", 404);
+            jsonError("Chit not found or does not belong to your company", 404);
         }
 
         $fields = [];
@@ -216,6 +227,7 @@ if ($action === 'update') {
     }
 }
 
+// 4. DELETE CHIT
 if ($action === 'delete') {
     requirePermission($session, 'CHITS_DELETE');
     $input = getJsonInput();
@@ -227,6 +239,10 @@ if ($action === 'delete') {
     try {
         $stmt = $pdo->prepare("DELETE FROM chits WHERE id = :id AND company_id = :company_id");
         $stmt->execute(['id' => $id, 'company_id' => $companyId]);
+
+        if ($stmt->rowCount() === 0) {
+            jsonError("Chit not found or does not belong to your company", 404);
+        }
 
         jsonResponse(['success' => true, 'message' => "Chit deleted successfully"]);
     } catch (Exception $e) {

@@ -77,6 +77,14 @@ export const getDefaultAppData = (companyId?: string): AppData => {
 let memoryCache: Record<string, AppData> = {};
 
 /**
+ * Completely wipes in-memory cache across all tenants.
+ * Invoked on logout, login, and tenant switch to guarantee complete zero-leakage.
+ */
+export const clearAllCompanyMemoryCaches = (): void => {
+  memoryCache = {};
+};
+
+/**
  * Loads company-scoped application data.
  * Adheres strictly to security requirements: business data (chits, members, collections, users)
  * is kept in centralized backend and in-memory runtime cache, NOT in browser LocalStorage.

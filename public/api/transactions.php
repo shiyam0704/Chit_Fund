@@ -1,6 +1,6 @@
 <?php
 // ==============================================================================
-// TRANSACTIONS API ENDPOINT (Collections & Payments)
+// TRANSACTIONS API ENDPOINT (Strict Multi-Tenant Scoping & Integrity Validation)
 // ==============================================================================
 
 require_once __DIR__ . '/config.php';
@@ -13,14 +13,16 @@ $companyId = $session['companyId'];
 $action = $_GET['action'] ?? 'list';
 $pdo = Database::getConnection();
 
-// Ensure company exists
-try {
-    $cCheck = $pdo->prepare("INSERT IGNORE INTO companies (id, name, status) VALUES (:id, 'Chit Fund Management', 'Active')");
-    $cCheck->execute(['id' => $companyId]);
-} catch (Exception $ce) {
-    // Ignore if already exists
+// 1. LIST TRANSACTIONS
+if ($action === 'list') {
+    requirePermission($session, 'PAYMENTS_VIEW');
+    $stmt = $pdo->prepare("SELECT * FROM transactions WHERE company_id = :company_id ORDER BY payment_date DESC, created_at DESC");
+    $stmt->execute(['company_id' => $companyId]);
+    $raw = $stmt->fetchAll();
+    jsonResponse(['success' => true, 'companyId' => $companyId, 'transactions' => $raw]);
 }
 
+// 2. CREATE TRANSACTION
 if ($action === 'create') {
     requirePermission($session, 'PAYMENTS_CREATE');
     $input = getJsonInput();
@@ -29,6 +31,23 @@ if ($action === 'create') {
     }
 
     try {
+        $chitId = trim($input['chitId']);
+        $memberId = trim($input['memberId']);
+
+        // Cross-company validation: Verify chit belongs to this company
+        $cChk = $pdo->prepare("SELECT id FROM chits WHERE id = :chit_id AND company_id = :company_id LIMIT 1");
+        $cChk->execute(['chit_id' => $chitId, 'company_id' => $companyId]);
+        if (!$cChk->fetch()) {
+            jsonError("Invalid transaction: Chit does not exist or belongs to another company", 400);
+        }
+
+        // Cross-company validation: Verify member belongs to this company
+        $mChk = $pdo->prepare("SELECT id FROM members WHERE id = :member_id AND company_id = :company_id LIMIT 1");
+        $mChk->execute(['member_id' => $memberId, 'company_id' => $companyId]);
+        if (!$mChk->fetch()) {
+            jsonError("Invalid transaction: Member does not exist or belongs to another company", 400);
+        }
+
         $id = $input['id'] ?? ('TXN-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 8)));
 
         $stmt = $pdo->prepare("
@@ -46,8 +65,8 @@ if ($action === 'create') {
         $stmt->execute([
             'id' => $id,
             'company_id' => $companyId,
-            'chit_id' => $input['chitId'],
-            'member_id' => $input['memberId'],
+            'chit_id' => $chitId,
+            'member_id' => $memberId,
             'amount' => (float)$input['amount'],
             'payment_date' => !empty($input['paymentDate']) ? $input['paymentDate'] : date('Y-m-d'),
             'payment_mode' => $input['paymentMode'] ?? 'Cash',
@@ -60,108 +79,44 @@ if ($action === 'create') {
             'created_by' => $session['userId'],
         ]);
 
-        // Recalculate collected amount on chit
+        // Recalculate collected amount on chit safely
         $cUpdate = $pdo->prepare("
             UPDATE chits 
             SET collected_amount = (
                 SELECT COALESCE(SUM(amount), 0) FROM transactions 
-                WHERE chit_id = :chit_id AND company_id = :company_id AND type != 'Payout'
+                WHERE chit_id = :chit_id AND company_id = :company_id AND status = 'Completed'
             )
             WHERE id = :chit_id AND company_id = :company_id
         ");
-        $cUpdate->execute(['chit_id' => $input['chitId'], 'company_id' => $companyId]);
+        $cUpdate->execute(['chit_id' => $chitId, 'company_id' => $companyId]);
 
-        jsonResponse(['success' => true, 'id' => $id, 'message' => "Payment recorded successfully"]);
+        jsonResponse(['success' => true, 'id' => $id, 'message' => "Transaction recorded successfully"]);
     } catch (Exception $e) {
-        jsonError("Failed to record payment: " . $e->getMessage(), 500);
+        jsonError("Failed to record transaction: " . $e->getMessage(), 500);
     }
 }
 
-if ($action === 'update') {
-    requirePermission($session, 'PAYMENTS_EDIT');
-    $input = getJsonInput();
-    $id = $input['id'] ?? '';
-    if (empty($id)) {
-        jsonError("Transaction ID is required", 400);
-    }
-
-    $chk = $pdo->prepare("SELECT id, chit_id FROM transactions WHERE id = :id AND company_id = :company_id LIMIT 1");
-    $chk->execute(['id' => $id, 'company_id' => $companyId]);
-    $curr = $chk->fetch();
-    if (!$curr) {
-        jsonError("Transaction not found or unauthorized", 404);
-    }
-
-    $fields = [];
-    $params = ['id' => $id, 'company_id' => $companyId];
-
-    $fieldMap = [
-        'amount' => 'amount',
-        'paymentDate' => 'payment_date',
-        'paymentMode' => 'payment_mode',
-        'referenceNo' => 'reference_no',
-        'monthNumber' => 'month_number',
-        'monthId' => 'month_id',
-        'type' => 'type',
-        'status' => 'status',
-        'notes' => 'notes',
-    ];
-
-    foreach ($fieldMap as $jsKey => $dbCol) {
-        if (isset($input[$jsKey])) {
-            $fields[] = "$dbCol = :$dbCol";
-            $params[$dbCol] = $input[$jsKey];
-        }
-    }
-
-    if (!empty($fields)) {
-        $sql = "UPDATE transactions SET " . implode(', ', $fields) . " WHERE id = :id AND company_id = :company_id";
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
-
-        // Recalculate collected amount on chit
-        $cUpdate = $pdo->prepare("
-            UPDATE chits 
-            SET collected_amount = (
-                SELECT COALESCE(SUM(amount), 0) FROM transactions 
-                WHERE chit_id = :chit_id AND company_id = :company_id AND type != 'Payout'
-            )
-            WHERE id = :chit_id AND company_id = :company_id
-        ");
-        $cUpdate->execute(['chit_id' => $curr['chit_id'], 'company_id' => $companyId]);
-    }
-
-    jsonResponse(['success' => true, 'id' => $id, 'message' => "Transaction updated successfully"]);
-}
-
+// 3. DELETE TRANSACTION
 if ($action === 'delete') {
     requirePermission($session, 'PAYMENTS_DELETE');
     $input = getJsonInput();
     $id = $input['id'] ?? ($_GET['id'] ?? '');
     if (empty($id)) {
-        jsonError("Transaction ID is required", 400);
+        jsonError("Transaction ID is required for delete", 400);
     }
 
-    $chk = $pdo->prepare("SELECT chit_id FROM transactions WHERE id = :id AND company_id = :company_id LIMIT 1");
-    $chk->execute(['id' => $id, 'company_id' => $companyId]);
-    $curr = $chk->fetch();
+    try {
+        $stmt = $pdo->prepare("DELETE FROM transactions WHERE id = :id AND company_id = :company_id");
+        $stmt->execute(['id' => $id, 'company_id' => $companyId]);
 
-    $stmt = $pdo->prepare("DELETE FROM transactions WHERE id = :id AND company_id = :company_id");
-    $stmt->execute(['id' => $id, 'company_id' => $companyId]);
+        if ($stmt->rowCount() === 0) {
+            jsonError("Transaction not found or does not belong to your company", 404);
+        }
 
-    if ($curr) {
-        $cUpdate = $pdo->prepare("
-            UPDATE chits 
-            SET collected_amount = (
-                SELECT COALESCE(SUM(amount), 0) FROM transactions 
-                WHERE chit_id = :chit_id AND company_id = :company_id AND type != 'Payout'
-            )
-            WHERE id = :chit_id AND company_id = :company_id
-        ");
-        $cUpdate->execute(['chit_id' => $curr['chit_id'], 'company_id' => $companyId]);
+        jsonResponse(['success' => true, 'message' => "Transaction deleted successfully"]);
+    } catch (Exception $e) {
+        jsonError("Failed to delete transaction: " . $e->getMessage(), 500);
     }
-
-    jsonResponse(['success' => true, 'message' => "Transaction deleted successfully"]);
 }
 
 jsonError("Unknown action", 404);

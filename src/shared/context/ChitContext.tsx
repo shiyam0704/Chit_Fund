@@ -246,7 +246,7 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           // Retain local chits not yet on server (unless recently deleted)
           const unsyncedLocalChits = (currentAppData.chits || []).filter(
-            (c) => !serverChitMap.has(c.id) && !recentlyDeletedRef.current.has(c.id)
+            (c) => (!c.companyId || c.companyId === res.companyId) && !serverChitMap.has(c.id) && !recentlyDeletedRef.current.has(c.id)
           );
 
           // Push local unsynced chits to server so database is populated (once per item)
@@ -274,7 +274,7 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
           serverData.members.forEach((m) => serverMemberMap.set(m.id, m));
 
           const unsyncedLocalMembers = (currentAppData.members || []).filter(
-            (m) => !serverMemberMap.has(m.id) && !recentlyDeletedRef.current.has(m.id)
+            (m) => (!m.companyId || m.companyId === res.companyId) && !serverMemberMap.has(m.id) && !recentlyDeletedRef.current.has(m.id)
           );
 
           unsyncedLocalMembers.forEach((localMember) => {
@@ -301,7 +301,7 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
           serverData.transactions.forEach((t) => serverTxnMap.set(t.id, t));
 
           const unsyncedLocalTxns = (currentAppData.transactions || []).filter(
-            (t) => !serverTxnMap.has(t.id) && !recentlyDeletedRef.current.has(t.id)
+            (t) => (!t.companyId || t.companyId === res.companyId) && !serverTxnMap.has(t.id) && !recentlyDeletedRef.current.has(t.id)
           );
 
           unsyncedLocalTxns.forEach((localTxn) => {
@@ -328,7 +328,7 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
           serverData.payouts.forEach((p) => serverPayoutMap.set(p.id, p));
 
           const unsyncedLocalPayouts = (currentAppData.payouts || []).filter(
-            (p) => !serverPayoutMap.has(p.id) && !recentlyDeletedRef.current.has(p.id)
+            (p) => (!p.companyId || p.companyId === res.companyId) && !serverPayoutMap.has(p.id) && !recentlyDeletedRef.current.has(p.id)
           );
 
           unsyncedLocalPayouts.forEach((localPayout) => {
@@ -386,9 +386,18 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
       syncWithBackend(true);
     };
     const handleAppUpdated = () => reloadCompanyData();
+    const handleSessionCleared = () => {
+      setChits([]);
+      setMembers([]);
+      setTransactions([]);
+      setPayouts([]);
+      setManualWinnerAssignments({});
+      setCompanySettings(defaultCompanySettings);
+    };
 
     window.addEventListener('chitfund_company_changed', handleCompanyChange);
     window.addEventListener('chitfund_app_data_updated', handleAppUpdated);
+    window.addEventListener('chitfund_session_cleared', handleSessionCleared);
 
     const handler = (e: StorageEvent) => {
       const activeKey = getCompanyAppDataKey();
@@ -420,6 +429,7 @@ export const ChitProvider: React.FC<{ children: React.ReactNode }> = ({ children
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('chitfund_company_changed', handleCompanyChange);
       window.removeEventListener('chitfund_app_data_updated', handleAppUpdated);
+      window.removeEventListener('chitfund_session_cleared', handleSessionCleared);
       window.removeEventListener('storage', handler);
     };
   }, [reloadCompanyData, syncWithBackend]);

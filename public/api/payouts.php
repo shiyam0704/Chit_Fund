@@ -1,6 +1,6 @@
 <?php
 // ==============================================================================
-// PAYOUTS API ENDPOINT
+// PAYOUTS API ENDPOINT (Strict Multi-Tenant Scoping & Integrity Validation)
 // ==============================================================================
 
 require_once __DIR__ . '/config.php';
@@ -13,11 +13,36 @@ $companyId = $session['companyId'];
 $action = $_GET['action'] ?? 'list';
 $pdo = Database::getConnection();
 
+if ($action === 'list') {
+    requirePermission($session, 'PAYMENTS_VIEW');
+    $stmt = $pdo->prepare("SELECT * FROM payouts WHERE company_id = :company_id ORDER BY payout_date DESC");
+    $stmt->execute(['company_id' => $companyId]);
+    $raw = $stmt->fetchAll();
+    jsonResponse(['success' => true, 'companyId' => $companyId, 'payouts' => $raw]);
+}
+
 if ($action === 'create') {
     requirePermission($session, 'PAYMENTS_CREATE');
     $input = getJsonInput();
     if (empty($input['chitId']) || empty($input['memberId']) || !isset($input['monthNumber'])) {
         jsonError("Chit ID, Member ID, and monthNumber are required", 400);
+    }
+
+    $chitId = trim($input['chitId']);
+    $memberId = trim($input['memberId']);
+
+    // Cross-company validation: Verify chit belongs to this company
+    $cChk = $pdo->prepare("SELECT id FROM chits WHERE id = :chit_id AND company_id = :company_id LIMIT 1");
+    $cChk->execute(['chit_id' => $chitId, 'company_id' => $companyId]);
+    if (!$cChk->fetch()) {
+        jsonError("Invalid payout: Chit does not exist or belongs to another company", 400);
+    }
+
+    // Cross-company validation: Verify member belongs to this company
+    $mChk = $pdo->prepare("SELECT id FROM members WHERE id = :member_id AND company_id = :company_id LIMIT 1");
+    $mChk->execute(['member_id' => $memberId, 'company_id' => $companyId]);
+    if (!$mChk->fetch()) {
+        jsonError("Invalid payout: Member does not exist or belongs to another company", 400);
     }
 
     $id = $input['id'] ?? ('PAY-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 8)));
@@ -37,8 +62,8 @@ if ($action === 'create') {
     $stmt->execute([
         'id' => $id,
         'company_id' => $companyId,
-        'chit_id' => $input['chitId'],
-        'member_id' => $input['memberId'],
+        'chit_id' => $chitId,
+        'member_id' => $memberId,
         'month_number' => (int)$input['monthNumber'],
         'net_amount' => (float)($input['netAmount'] ?? 0),
         'dividend_amount' => (float)($input['dividendAmount'] ?? 0),
@@ -71,6 +96,10 @@ if ($action === 'delete') {
         'month_number' => $monthNumber,
         'company_id' => $companyId
     ]);
+
+    if ($stmt->rowCount() === 0) {
+        jsonError("Payout not found or does not belong to your company", 404);
+    }
 
     jsonResponse(['success' => true, 'message' => "Payout removed successfully"]);
 }

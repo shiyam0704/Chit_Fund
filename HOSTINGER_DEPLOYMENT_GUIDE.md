@@ -439,3 +439,33 @@ In addition, `middleware.php` reads `HTTP_X_AUTH_TOKEN` and `REDIRECT_HTTP_X_AUT
 - **SQL Injection:** 100% prepared PDO statements with parameterized values throughout all endpoints.
 - **Tenant Scope:** Scoped by `company_id` on all tables to prevent cross-company data leakage.
 - **Access Control:** Verified at both router layer (React ProtectedRoute) and server layer (`requirePermission()`).
+
+---
+
+## 7. Multi-Tenant Company Isolation & Safe Migration Guide
+
+### 7.1 Multi-Tenant Isolation Architecture
+The platform provides 100% data isolation between multiple companies (tenants) sharing the same deployed codebase and database:
+1. **Server Authority:** The tenant ID is derived strictly from the authenticated JWT session (`$session['companyId']`). Any client-supplied `companyId` in request bodies is completely overridden or rejected.
+2. **Zero Cross-Company Visibility:** Every `SELECT` query in `/api/sync.php`, `/api/users.php`, `/api/chits.php`, etc., enforces `WHERE company_id = :companyId`. No company can ever view or discover another company's records.
+3. **Mutation IDOR Protection:** Every `UPDATE`, `DELETE`, `RESET_PASSWORD`, and `TOGGLE_STATUS` operation explicitly binds `AND company_id = :companyId`.
+4. **Cross-Entity Integrity:** Creating a member or payment requires verifying that the referenced `chitId` and `memberId` belong strictly to the authenticated tenant. Cross-tenant foreign key referencing is completely blocked.
+5. **Client-Side Cache Isolation:** Logging out or switching accounts wipes all in-memory runtime caches and local storage tenant caches to eliminate stale cross-tenant leakage.
+
+### 7.2 Running the Safe Migration Script on Hostinger
+If you have an existing database deployed on Hostinger, run the migration script `public/api/migrate_tenants.sql` in phpMyAdmin:
+1. Log into your **Hostinger hPanel** -> **Databases** -> Click **Enter phpMyAdmin** next to your database.
+2. Select your Chit Fund database in the left sidebar.
+3. Click the **Import** tab (or **SQL** tab).
+4. Browse to or copy-paste the contents of [`public/api/migrate_tenants.sql`](file:///c:/Users/SMS%20STUDIO/Desktop/Chit%20Fund/public/api/migrate_tenants.sql).
+5. Click **Go** / **Execute**.
+6. The script will:
+   - Ensure the `companies` table and default tenant (`CMP-001`) exist.
+   - Safely backfill any legacy records with NULL or unassigned `company_id` to `CMP-001` (zero data loss).
+   - Add composite performance indexes `(company_id, created_at)` across all tables.
+
+### 7.3 New Company Onboarding
+To register a new independent company on your deployed instance:
+- Send a `POST` request to `/api/companies.php?action=register` with `companyName`, `adminName`, `adminEmail`, and `adminPassword`.
+- The endpoint atomically creates the company and sets up the primary Admin account with hashed credentials.
+- The Admin can now log in, create chits, add members, and onboard Staff/Manager accounts completely isolated from any other company.

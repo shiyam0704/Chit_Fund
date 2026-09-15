@@ -48,6 +48,26 @@ export function setCompanyCache(companyId: string, data: SyncResponseData): void
   }
 }
 
+/**
+ * Wipes all tenant-scoped cached data from localStorage.
+ * Ensures zero stale cache remnants exist when switching companies or logging out.
+ */
+export function clearAllCompanyLocalCaches(): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith(LOCAL_CACHE_PREFIX) || key.startsWith('chitfund_company_'))) {
+        toRemove.push(key);
+      }
+    }
+    toRemove.forEach((k) => localStorage.removeItem(k));
+  } catch (err) {
+    console.warn('Failed to clear company local caches', err);
+  }
+}
+
 // ----------------------------------------------------------------------
 // 1. Authoritative Full Sync
 // ----------------------------------------------------------------------

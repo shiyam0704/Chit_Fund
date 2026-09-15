@@ -15,7 +15,8 @@ import {
 } from '../permissions';
 import { Company } from '@/types';
 import { logActivity } from '@/shared/services/auditService';
-import { getAppData, saveAppData } from '@/shared/utils/storage';
+import { getAppData, saveAppData, clearAllCompanyMemoryCaches } from '@/shared/utils/storage';
+import { clearAllCompanyLocalCaches } from '@/shared/services/companyDataService';
 import { initializeLocalApplication } from '@/shared/utils/initialization';
 import {
   USERS_STORAGE_KEY,
@@ -215,6 +216,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const handleUnauthorized = () => {
       clearAuthToken();
       clearStoredAuthSession();
+      clearAllCompanyMemoryCaches();
+      clearAllCompanyLocalCaches();
       setSession({
         isAuthenticated: false,
         userId: null,
@@ -224,6 +227,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role: null,
       });
       setActiveUser(null);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('chitfund_session_cleared'));
+      }
     };
     window.addEventListener('chitfund_auth_unauthorized', handleUnauthorized);
     return () => window.removeEventListener('chitfund_auth_unauthorized', handleUnauthorized);
@@ -327,6 +333,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (apiRes?.success && apiRes.token) {
+        clearAllCompanyMemoryCaches();
         setAuthToken(apiRes.token);
         const apiUser = apiRes.user;
         const apiCompany = apiRes.company;
@@ -410,6 +417,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     clearStoredAuthSession();
     clearAuthToken();
+    clearAllCompanyMemoryCaches();
+    clearAllCompanyLocalCaches();
     setActiveUser(null);
     setUsers([]);
     setSession({
@@ -420,6 +429,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       companyName: null,
       role: null,
     });
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('chitfund_session_cleared'));
+    }
   }, [currentUser, session, companyId]);
 
   // ---------------------------------------------------------------------------
